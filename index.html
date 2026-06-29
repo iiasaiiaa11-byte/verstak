@@ -1499,7 +1499,10 @@ function meDrawArrowAt(ctx,x1,y1,x2,y2,label,col,k){
 function meDrawArrowScreen(ctx,a,selected,temp){
   const col=temp?'#ffd27f':(selected?'#7fffd4':'#ffe44d');
   const s1=meToScreen(a.x1,a.y1),s2=meToScreen(a.x2,a.y2);
-  meDrawArrowAt(ctx,s1.x,s1.y,s2.x,s2.y,a.label||'',col,1);
+  // размер привязан к фото: k=1 при масштабе, на котором рисовали; меньше при отдалении, больше при приближении
+  const Wimg=ME.cw*ME.scale;
+  const k=temp?1:((a.f||(1/ME.cw))*Wimg);
+  meDrawArrowAt(ctx,s1.x,s1.y,s2.x,s2.y,a.label||'',col,k);
 }
 function meBind(){
   const cv=$('meCanvas');if(!cv)return;
@@ -1575,7 +1578,7 @@ function mePointerUp(e){
     const s1=meToScreen(t.x1,t.y1),s2=meToScreen(t.x2,t.y2);
     if(Math.hypot(s2.x-s1.x,s2.y-s1.y)>20){
       const lbl=prompt('Размер (например 1840 мм):','');
-      const a={id:uid(),x1:t.x1,y1:t.y1,x2:t.x2,y2:t.y2,label:(lbl||'').trim()};
+      const a={id:uid(),x1:t.x1,y1:t.y1,x2:t.x2,y2:t.y2,label:(lbl||'').trim(),f:1/(ME.cw*ME.scale)};
       ME.ann.push(a);meSelect(a);
     }
     meSetDraw(false);meRedraw();return;
@@ -1598,8 +1601,7 @@ function meMakePreview(photo,ann,maxW,editorW){
       let w=img.width,h=img.height;if(w>maxW){h=Math.round(h*maxW/w);w=maxW;}
       const c=document.createElement('canvas');c.width=w;c.height=h;
       const ctx=c.getContext('2d');ctx.drawImage(img,0,0,w,h);
-      const k=editorW?(w/editorW):1; // совпадает с тем, как разметка видна при обычном масштабе
-      ann.forEach(a=>meDrawArrowAt(ctx,a.x1*w,a.y1*h,a.x2*w,a.y2*h,a.label||'','#ffe44d',k));
+      ann.forEach(a=>{const k=a.f?a.f*w:(editorW?w/editorW:1);meDrawArrowAt(ctx,a.x1*w,a.y1*h,a.x2*w,a.y2*h,a.label||'','#ffe44d',k);});
       res(c.toDataURL('image/jpeg',0.8));
     };
     img.onerror=()=>res(photo);
