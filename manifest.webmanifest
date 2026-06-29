@@ -1,0 +1,15 @@
+{
+  "name": "ВЕРСТАК — заказы мебели",
+  "short_name": "ВЕРСТАК",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#15130f",
+  "theme_color": "#15130f",
+  "orientation": "portrait",
+  "lang": "ru",
+  "icons": [
+    { "src": "icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
