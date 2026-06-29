@@ -288,6 +288,9 @@
   .me-hint{width:100%;text-align:center;color:var(--muted);font-size:12px;margin:2px 0 0;}
   .measure-card{position:relative;}
   .measure-card .mbadge{position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;}
+  .me-note-pop{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:260;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;width:min(92vw,420px);box-shadow:0 12px 44px rgba(0,0,0,.6);}
+  .me-note-pop textarea{width:100%;min-height:90px;}
+  .me-note-pop .row{display:flex;gap:8px;margin-top:10px;}
 
   /* адаптив: телефон → планшет → компьютер */
   .proj-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
@@ -1383,7 +1386,7 @@ function measuresGrid(p,items,emptyTxt){
   items.forEach(m=>{
     h+=`<div class="measure-card" style="cursor:pointer" onclick="openMeasure('${p.id}','${m.id}')">
       <img src="${m.preview||m.photo}" style="width:100%;height:130px;object-fit:cover;border-radius:10px;display:block">
-      <span class="mbadge">📏 ${(m.ann||[]).length}</span>
+      <span class="mbadge">📏 ${(m.ann||[]).length}${(m.notes&&m.notes.length)?' · 📝 '+m.notes.length:''}</span>
       <button class="del" style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.55);border:none;color:#fff;border-radius:50%;width:24px;height:24px" onclick="event.stopPropagation();delMeasure('${p.id}','${m.id}')">×</button>
     </div>`;
   });
@@ -1415,17 +1418,17 @@ function delMeasure(pid,mid){
 function addMeasure(pid){
   const inp=document.createElement('input');
   inp.type='file';inp.accept='image/*';inp.style.display='none';
-  inp.onchange=()=>{pickPhoto(inp,d=>openMeasureEditor(pid,null,d,[]));setTimeout(()=>inp.remove(),100);};
+  inp.onchange=()=>{pickPhoto(inp,d=>openMeasureEditor(pid,null,d,[],[]));setTimeout(()=>inp.remove(),100);};
   document.body.appendChild(inp);inp.click();
 }
 function openMeasure(pid,mid){
   const p=DB.projects.find(x=>x.id===pid);const m=(p.measures||[]).find(x=>x.id===mid);if(!m)return;
-  openMeasureEditor(pid,mid,m.photo,m.ann||[]);
+  openMeasureEditor(pid,mid,m.photo,m.ann||[],m.notes||[]);
 }
 
 let ME=null;
-function openMeasureEditor(pid,mid,photo,ann){
-  ME={pid,mid,photo,ann:(ann||[]).map(a=>({...a})),draw:false,sel:null,drag:null,temp:null,img:null,cw:0,ch:0,_downXY:null,ptrs:new Map(),gesture:null,scale:1,tx:0,ty:0};
+function openMeasureEditor(pid,mid,photo,ann,notes){
+  ME={pid,mid,photo,ann:(ann||[]).map(a=>({...a})),notes:(notes||[]).map(n=>({...n})),noteMode:false,editingNote:null,draw:false,sel:null,drag:null,temp:null,img:null,cw:0,ch:0,_downXY:null,_downNote:null,ptrs:new Map(),gesture:null,scale:1,tx:0,ty:0};
   const ov=document.createElement('div');ov.className='me-overlay';ov.id='meOverlay';
   ov.innerHTML=`
     <div class="me-bar">
@@ -1435,7 +1438,8 @@ function openMeasureEditor(pid,mid,photo,ann){
     </div>
     <div class="me-canvas-wrap" id="meWrap"><canvas id="meCanvas"></canvas></div>
     <div class="me-bar bottom">
-      <button class="me-btn" id="meDrawBtn" onclick="meToggleDraw()">📏 Добавить размер</button>
+      <button class="me-btn" id="meDrawBtn" onclick="meToggleDraw()">📏 Размер</button>
+      <button class="me-btn" id="meNoteBtn" onclick="meToggleNote()">📝 Заметка</button>
       <button class="me-btn" id="meEditBtn" onclick="meEditSel()" disabled>✏️ Число</button>
       <button class="me-btn danger" id="meDelBtn" onclick="meDelSel()" disabled>🗑 Удалить</button>
       <div class="me-hint" id="meHint">«Добавить размер» → проведи пальцем по проёму. Двумя пальцами — приблизить/отдалить фото.</div>
@@ -1446,7 +1450,7 @@ function openMeasureEditor(pid,mid,photo,ann){
   img.src=photo;
   window.addEventListener('resize',meOnResize);
 }
-function closeMeasureEditor(){window.removeEventListener('resize',meOnResize);const o=$('meOverlay');if(o)o.remove();ME=null;}
+function closeMeasureEditor(){window.removeEventListener('resize',meOnResize);const np=$('meNotePop');if(np)np.remove();const o=$('meOverlay');if(o)o.remove();ME=null;}
 function meOnResize(){if(ME){meLayout();meRedraw();}}
 function meLayout(){
   const wrap=$('meWrap'),cv=$('meCanvas');if(!wrap||!cv||!ME.img)return;
@@ -1469,6 +1473,7 @@ function meRedraw(){
   ctx.restore();
   ME.ann.forEach(a=>meDrawArrowScreen(ctx,a,a===ME.sel,false));
   if(ME.temp)meDrawArrowScreen(ctx,ME.temp,false,true);
+  (ME.notes||[]).forEach(n=>meDrawNote(ctx,n));
 }
 function meArrowHead(ctx,tx,ty,ux,uy,len,col){
   const half=len*0.34,bx=tx-ux*len,by=ty-uy*len,px=-uy,py=ux;
@@ -1503,6 +1508,47 @@ function meDrawArrowScreen(ctx,a,selected,temp){
   const Wimg=ME.cw*ME.scale;
   const k=temp?1:((a.f||(1/ME.cw))*Wimg);
   meDrawArrowAt(ctx,s1.x,s1.y,s2.x,s2.y,a.label||'',col,k);
+}
+function meRoundPath(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function meDrawNoteAt(ctx,sx,sy,k){
+  const r=13*k;
+  ctx.save();
+  meRoundPath(ctx,sx-r,sy-r,r*2,r*2,5*k);
+  ctx.fillStyle='#7fd1ff';ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.55)';ctx.lineWidth=2*k;ctx.stroke();
+  ctx.strokeStyle='rgba(0,0,0,.6)';ctx.lineWidth=2*k;ctx.lineCap='round';
+  for(let i=0;i<3;i++){const yy=sy-5*k+i*5*k;ctx.beginPath();ctx.moveTo(sx-7*k,yy);ctx.lineTo(sx+(i===2?1*k:7*k),yy);ctx.stroke();}
+  ctx.restore();
+}
+function meDrawNote(ctx,n){const s=meToScreen(n.x,n.y);meDrawNoteAt(ctx,s.x,s.y,1);}
+function meHitNote(px,py){for(let i=ME.notes.length-1;i>=0;i--){const n=ME.notes[i];const s=meToScreen(n.x,n.y);if(Math.hypot(px-s.x,py-s.y)<=20)return n;}return null;}
+function meToggleNote(){meSetNoteMode(!ME.noteMode);}
+function meSetNoteMode(on){
+  ME.noteMode=on;const b=$('meNoteBtn');if(b)b.classList.toggle('active',on);
+  if(on){meSetDraw(false);meSelect(null);}
+  const hint=$('meHint');if(hint)hint.textContent=on?'Нажми на фото, где оставить заметку.':'Тапни по стрелке — выбрать, по 📝 — открыть заметку. Двумя пальцами — масштаб.';
+}
+function openNotePopup(note){
+  ME.editingNote=note;
+  const ex=$('meNotePop');if(ex)ex.remove();
+  const pop=document.createElement('div');pop.className='me-note-pop';pop.id='meNotePop';
+  pop.innerHTML=`<div style="font-weight:700;margin-bottom:8px">📝 Заметка к фото</div>
+    <textarea id="meNoteText" placeholder="Напишите заметку…">${esc(note.text||'')}</textarea>
+    <div class="row"><button class="me-btn danger" onclick="delNotePopup()">Удалить</button><button class="me-btn primary" style="flex:1" onclick="closeNotePopup()">Готово</button></div>`;
+  document.body.appendChild(pop);
+  setTimeout(()=>{const t=$('meNoteText');if(t)t.focus();},60);
+}
+function closeNotePopup(){
+  const pop=$('meNotePop');
+  if(ME&&ME.editingNote){
+    const t=$('meNoteText');ME.editingNote.text=t?t.value.trim():'';
+    if(!ME.editingNote.text)ME.notes=ME.notes.filter(n=>n!==ME.editingNote);
+  }
+  if(pop)pop.remove();if(ME)ME.editingNote=null;meRedraw();
+}
+function delNotePopup(){
+  if(ME&&ME.editingNote)ME.notes=ME.notes.filter(n=>n!==ME.editingNote);
+  const pop=$('meNotePop');if(pop)pop.remove();if(ME)ME.editingNote=null;meRedraw();
 }
 function meBind(){
   const cv=$('meCanvas');if(!cv)return;
@@ -1544,8 +1590,11 @@ function mePointerDown(e){
     return;
   }
   if(ME.ptrs.size>2)return;
-  ME._downXY=pt;
+  ME._downXY=pt;ME._downNote=null;
+  if(ME.noteMode)return; // заметка ставится по отпусканию (тап)
   if(ME.draw){const n=meToNorm(pt.x,pt.y);ME.temp={x1:n.nx,y1:n.ny,x2:n.nx,y2:n.ny};return;}
+  const nh=meHitNote(pt.x,pt.y);
+  if(nh){ME._downNote=nh;return;}
   const ep=meHitEndpoint(pt.x,pt.y);
   if(ep){ME.drag={ep};meSelect(ep.a);return;}
   const ln=meHitLine(pt.x,pt.y);
@@ -1572,7 +1621,14 @@ function mePointerMove(e){
 function mePointerUp(e){
   if(!ME)return;
   ME.ptrs.delete(e.pointerId);
-  if(ME.gesture){if(ME.ptrs.size<2)ME.gesture=null;ME._downXY=null;ME.drag=null;ME.temp=null;return;}
+  if(ME.gesture){if(ME.ptrs.size<2)ME.gesture=null;ME._downXY=null;ME.drag=null;ME.temp=null;ME._downNote=null;return;}
+  const up=meXY(e);
+  const moved=ME._downXY?Math.hypot(up.x-ME._downXY.x,up.y-ME._downXY.y)>8:false;
+  if(ME.noteMode){
+    if(!moved&&ME._downXY){const n=meToNorm(ME._downXY.x,ME._downXY.y);const note={id:uid(),x:clamp01(n.nx),y:clamp01(n.ny),text:''};ME.notes.push(note);meSetNoteMode(false);meRedraw();openNotePopup(note);}
+    ME._downXY=null;return;
+  }
+  if(ME._downNote){const nt=ME._downNote;ME._downNote=null;ME._downXY=null;if(!moved){openNotePopup(nt);}return;}
   if(ME.draw&&ME.temp){
     const t=ME.temp;ME.temp=null;
     const s1=meToScreen(t.x1,t.y1),s2=meToScreen(t.x2,t.y2);
@@ -1589,12 +1645,12 @@ function meSelect(a){ME.sel=a||null;const e=$('meEditBtn'),d=$('meDelBtn');if(e)
 function meToggleDraw(){meSetDraw(!ME.draw);}
 function meSetDraw(on){
   ME.draw=on;const b=$('meDrawBtn');if(b)b.classList.toggle('active',on);
-  const hint=$('meHint');if(hint)hint.textContent=on?'Проведи пальцем по проёму, потом впиши размер. Двумя пальцами — масштаб фото.':'Тапни по стрелке, чтобы выбрать; тяни за концы, чтобы подвинуть. Двумя пальцами — масштаб фото.';
-  if(on)meSelect(null);
+  if(on){ME.noteMode=false;const nb=$('meNoteBtn');if(nb)nb.classList.remove('active');meSelect(null);}
+  const hint=$('meHint');if(hint)hint.textContent=on?'Проведи пальцем по проёму, потом впиши размер. Двумя пальцами — масштаб фото.':'Тапни по стрелке — выбрать, по 📝 — открыть заметку. Двумя пальцами — масштаб.';
 }
 function meEditSel(){if(!ME.sel)return;const lbl=prompt('Размер:',ME.sel.label||'');if(lbl!==null){ME.sel.label=lbl.trim();meRedraw();}}
 function meDelSel(){if(!ME.sel)return;ME.ann=ME.ann.filter(a=>a!==ME.sel);meSelect(null);}
-function meMakePreview(photo,ann,maxW,editorW){
+function meMakePreview(photo,ann,notes,maxW,editorW){
   return new Promise(res=>{
     const img=new Image();
     img.onload=()=>{
@@ -1602,6 +1658,8 @@ function meMakePreview(photo,ann,maxW,editorW){
       const c=document.createElement('canvas');c.width=w;c.height=h;
       const ctx=c.getContext('2d');ctx.drawImage(img,0,0,w,h);
       ann.forEach(a=>{const k=a.f?a.f*w:(editorW?w/editorW:1);meDrawArrowAt(ctx,a.x1*w,a.y1*h,a.x2*w,a.y2*h,a.label||'','#ffe44d',k);});
+      const nk=editorW?(w/editorW):1;
+      (notes||[]).forEach(n=>meDrawNoteAt(ctx,n.x*w,n.y*h,nk));
       res(c.toDataURL('image/jpeg',0.8));
     };
     img.onerror=()=>res(photo);
@@ -1612,10 +1670,10 @@ function saveMeasure(){
   if(!ME)return;
   const p=DB.projects.find(x=>x.id===ME.pid);if(!p){closeMeasureEditor();return;}
   p.measures=p.measures||[];
-  const photo=ME.photo,ann=ME.ann,mid=ME.mid,editorW=ME.cw;
-  meMakePreview(photo,ann,600,editorW).then(preview=>{
-    if(mid){const m=p.measures.find(x=>x.id===mid);if(m){m.ann=ann;m.preview=preview;}}
-    else p.measures.push({id:uid(),photo,ann,preview,created:todayISO(),folderId:meFolder||null});
+  const photo=ME.photo,ann=ME.ann,notes=ME.notes,mid=ME.mid,editorW=ME.cw;
+  meMakePreview(photo,ann,notes,600,editorW).then(preview=>{
+    if(mid){const m=p.measures.find(x=>x.id===mid);if(m){m.ann=ann;m.notes=notes;m.preview=preview;}}
+    else p.measures.push({id:uid(),photo,ann,notes,preview,created:todayISO(),folderId:meFolder||null});
     save();closeMeasureEditor();render();
   });
 }
