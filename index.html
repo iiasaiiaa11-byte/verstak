@@ -1419,10 +1419,12 @@ function meRedraw(){
   const cv=$('meCanvas');if(!cv||!ME.img)return;
   const ctx=cv.getContext('2d'),dpr=window.devicePixelRatio||1;
   ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);
-  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.translate(ME.tx,ME.ty);ctx.scale(ME.scale,ME.scale);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.save();ctx.translate(ME.tx,ME.ty);ctx.scale(ME.scale,ME.scale);
   ctx.drawImage(ME.img,0,0,ME.cw,ME.ch);
-  ME.ann.forEach(a=>meDrawArrow(ctx,a,ME.cw,ME.ch,a===ME.sel,false));
-  if(ME.temp)meDrawArrow(ctx,ME.temp,ME.cw,ME.ch,false,true);
+  ctx.restore();
+  ME.ann.forEach(a=>meDrawArrowScreen(ctx,a,a===ME.sel,false));
+  if(ME.temp)meDrawArrowScreen(ctx,ME.temp,false,true);
 }
 function meArrowHead(ctx,tx,ty,ux,uy,len,col){
   const half=len*0.34,bx=tx-ux*len,by=ty-uy*len,px=-uy,py=ux;
@@ -1430,28 +1432,30 @@ function meArrowHead(ctx,tx,ty,ux,uy,len,col){
   ctx.fillStyle=col;ctx.fill();
   ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=1.2;ctx.lineJoin='round';ctx.stroke();
 }
-function meDrawArrow(ctx,a,w,h,selected,temp){
-  const x1=a.x1*w,y1=a.y1*h,x2=a.x2*w,y2=a.y2*h;
-  const col=temp?'#ffd27f':(selected?'#7fffd4':'#ffe44d');
+function meDrawArrowAt(ctx,x1,y1,x2,y2,label,col,k){
   const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy)||1,ux=dx/len,uy=dy/len;
-  const head=16,back=Math.min(head*0.9,len/2);
+  const head=16*k,back=Math.min(head*0.9,len/2);
   const lx1=x1+ux*back,ly1=y1+uy*back,lx2=x2-ux*back,ly2=y2-uy*back;
   ctx.lineCap='butt';
-  ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=6;
+  ctx.strokeStyle='rgba(0,0,0,.5)';ctx.lineWidth=6*k;
   ctx.beginPath();ctx.moveTo(lx1,ly1);ctx.lineTo(lx2,ly2);ctx.stroke();
-  ctx.strokeStyle=col;ctx.lineWidth=3;
+  ctx.strokeStyle=col;ctx.lineWidth=3*k;
   ctx.beginPath();ctx.moveTo(lx1,ly1);ctx.lineTo(lx2,ly2);ctx.stroke();
   meArrowHead(ctx,x2,y2,ux,uy,head,col);
   meArrowHead(ctx,x1,y1,-ux,-uy,head,col);
-  const lbl=a.label||'';
-  if(lbl){
+  if(label){
     let ang=Math.atan2(dy,dx);
     if(ang>Math.PI/2)ang-=Math.PI;else if(ang<-Math.PI/2)ang+=Math.PI;
     ctx.save();ctx.translate((x1+x2)/2,(y1+y2)/2);ctx.rotate(ang);
-    ctx.font='800 17px Inter, sans-serif';ctx.fillStyle=col;ctx.textAlign='center';ctx.textBaseline='middle';
-    ctx.fillText(lbl,0,-11);
+    ctx.font='800 '+(17*k)+'px Inter, sans-serif';ctx.fillStyle=col;ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(label,0,-11*k);
     ctx.restore();
   }
+}
+function meDrawArrowScreen(ctx,a,selected,temp){
+  const col=temp?'#ffd27f':(selected?'#7fffd4':'#ffe44d');
+  const s1=meToScreen(a.x1,a.y1),s2=meToScreen(a.x2,a.y2);
+  meDrawArrowAt(ctx,s1.x,s1.y,s2.x,s2.y,a.label||'',col,1);
 }
 function meBind(){
   const cv=$('meCanvas');if(!cv)return;
@@ -1543,14 +1547,15 @@ function meSetDraw(on){
 }
 function meEditSel(){if(!ME.sel)return;const lbl=prompt('Размер:',ME.sel.label||'');if(lbl!==null){ME.sel.label=lbl.trim();meRedraw();}}
 function meDelSel(){if(!ME.sel)return;ME.ann=ME.ann.filter(a=>a!==ME.sel);meSelect(null);}
-function meMakePreview(photo,ann,maxW){
+function meMakePreview(photo,ann,maxW,editorW){
   return new Promise(res=>{
     const img=new Image();
     img.onload=()=>{
       let w=img.width,h=img.height;if(w>maxW){h=Math.round(h*maxW/w);w=maxW;}
       const c=document.createElement('canvas');c.width=w;c.height=h;
       const ctx=c.getContext('2d');ctx.drawImage(img,0,0,w,h);
-      ann.forEach(a=>meDrawArrow(ctx,a,w,h,false,false));
+      const k=editorW?(w/editorW):1; // совпадает с тем, как разметка видна при обычном масштабе
+      ann.forEach(a=>meDrawArrowAt(ctx,a.x1*w,a.y1*h,a.x2*w,a.y2*h,a.label||'','#ffe44d',k));
       res(c.toDataURL('image/jpeg',0.8));
     };
     img.onerror=()=>res(photo);
@@ -1561,8 +1566,8 @@ function saveMeasure(){
   if(!ME)return;
   const p=DB.projects.find(x=>x.id===ME.pid);if(!p){closeMeasureEditor();return;}
   p.measures=p.measures||[];
-  const photo=ME.photo,ann=ME.ann,mid=ME.mid;
-  meMakePreview(photo,ann,600).then(preview=>{
+  const photo=ME.photo,ann=ME.ann,mid=ME.mid,editorW=ME.cw;
+  meMakePreview(photo,ann,600,editorW).then(preview=>{
     if(mid){const m=p.measures.find(x=>x.id===mid);if(m){m.ann=ann;m.preview=preview;}}
     else p.measures.push({id:uid(),photo,ann,preview,created:todayISO()});
     save();closeMeasureEditor();render();
