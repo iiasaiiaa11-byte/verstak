@@ -705,7 +705,7 @@ function renderProjects(){
   $('content').innerHTML=h;
 }
 
-function openProj(id){openProject=id;projTab='stages';render();}
+function openProj(id){openProject=id;projTab='stages';meFolder=null;render();}
 
 /* ---------- ЗАВЕРШЁННЫЕ (АРХИВ) ---------- */
 function openArchive(){showArchive=true;TAB='projects';openProject=null;document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));render();}
@@ -1346,15 +1346,41 @@ function renderCalc(){
 function emptyState(path,txt){return `<div class="empty"><svg viewBox="0 0 24 24"><path d="${path}"/></svg><p>${txt}</p></div>`;}
 
 /* ---------- ЗАМЕРЫ: фото с размерными стрелками ---------- */
+let meFolder=null;
 function measuresView(p){
-  const arr=p.measures||[];
-  let h=`<button class="btn btn-ghost btn-sm" style="width:100%" onclick="addMeasure('${p.id}')">+ Добавить замер (фото)</button>`;
-  if(!arr.length){
-    h+=emptyState('M3 5h18v14H3zM3 9h18M8 5v14','Замеров пока нет.<br>Сфотографируй нишу, стену или деталь и нанеси размеры прямо на фото.');
+  const folders=p.measureFolders||[],all=p.measures||[];
+  if(meFolder){ // внутри папки
+    const f=folders.find(x=>x.id===meFolder);
+    if(!f){meFolder=null;return measuresView(p);}
+    const items=all.filter(m=>m.folderId===meFolder);
+    let h=`<button class="back" onclick="meFolder=null;render()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Все замеры</button>`;
+    h+=`<div class="proj-name" style="font-size:18px">📁 ${esc(f.name)}</div>`;
+    h+=`<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="addMeasure('${p.id}')">+ Добавить замер (фото)</button>`;
+    h+=measuresGrid(p,items,'В этой папке пока нет замеров.<br>Нажми «+», чтобы сфотографировать.');
     return h;
   }
-  h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">`;
-  arr.forEach(m=>{
+  let h=`<div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" style="flex:1" onclick="addMeasure('${p.id}')">+ Замер (фото)</button><button class="btn btn-ghost btn-sm" style="flex:1" onclick="addMeasureFolder('${p.id}')">📁 + Папка</button></div>`;
+  if(folders.length){
+    h+=`<div class="sec-title">Папки</div><div class="card">`;
+    folders.forEach(f=>{const cnt=all.filter(m=>m.folderId===f.id).length;
+      h+=`<div class="item" style="cursor:pointer" onclick="openMeasuresFolder('${p.id}','${f.id}')">
+        <div style="font-size:22px;margin-right:6px">📁</div>
+        <div class="item-body"><div class="item-txt">${esc(f.name)}</div><div class="item-sub">${cnt} замер(ов)</div></div>
+        <button class="del" style="color:var(--muted)" onclick="event.stopPropagation();renameMeasureFolder('${p.id}','${f.id}')">✏️</button>
+        <button class="del" onclick="event.stopPropagation();delMeasureFolder('${p.id}','${f.id}')">×</button>
+      </div>`;
+    });
+    h+=`</div>`;
+  }
+  const loose=all.filter(m=>!m.folderId);
+  if(folders.length||loose.length)h+=`<div class="sec-title">${folders.length?'Без папки':'Замеры'}</div>`;
+  h+=measuresGrid(p,loose,folders.length?'Здесь будут замеры без папки.':'Замеров пока нет.<br>Добавь фото или создай папку — кухня, шкаф, прихожая, тумбы…');
+  return h;
+}
+function measuresGrid(p,items,emptyTxt){
+  if(!items.length)return emptyState('M3 5h18v14H3zM3 9h18M8 5v14',emptyTxt);
+  let h=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">`;
+  items.forEach(m=>{
     h+=`<div class="measure-card" style="cursor:pointer" onclick="openMeasure('${p.id}','${m.id}')">
       <img src="${m.preview||m.photo}" style="width:100%;height:130px;object-fit:cover;border-radius:10px;display:block">
       <span class="mbadge">📏 ${(m.ann||[]).length}</span>
@@ -1363,6 +1389,24 @@ function measuresView(p){
   });
   h+=`</div>`;
   return h;
+}
+function addMeasureFolder(pid){
+  const name=prompt('Название папки (напр. Кухня, Шкаф, Прихожая):','');
+  if(name===null)return;const n=name.trim();if(!n)return;
+  const p=DB.projects.find(x=>x.id===pid);p.measureFolders=p.measureFolders||[];
+  p.measureFolders.push({id:uid(),name:n,created:todayISO()});save();render();
+}
+function openMeasuresFolder(pid,fid){meFolder=fid;render();}
+function renameMeasureFolder(pid,fid){
+  const p=DB.projects.find(x=>x.id===pid);const f=(p.measureFolders||[]).find(x=>x.id===fid);if(!f)return;
+  const name=prompt('Название папки:',f.name);if(name===null)return;const n=name.trim();if(n){f.name=n;save();render();}
+}
+function delMeasureFolder(pid,fid){
+  const p=DB.projects.find(x=>x.id===pid);const cnt=(p.measures||[]).filter(m=>m.folderId===fid).length;
+  if(!confirm(cnt?('Удалить папку и '+cnt+' замер(ов) внутри?'):'Удалить папку?'))return;
+  p.measures=(p.measures||[]).filter(m=>m.folderId!==fid);
+  p.measureFolders=(p.measureFolders||[]).filter(x=>x.id!==fid);
+  if(meFolder===fid)meFolder=null;save();render();
 }
 function delMeasure(pid,mid){
   if(!confirm('Удалить этот замер?'))return;
@@ -1569,7 +1613,7 @@ function saveMeasure(){
   const photo=ME.photo,ann=ME.ann,mid=ME.mid,editorW=ME.cw;
   meMakePreview(photo,ann,600,editorW).then(preview=>{
     if(mid){const m=p.measures.find(x=>x.id===mid);if(m){m.ann=ann;m.preview=preview;}}
-    else p.measures.push({id:uid(),photo,ann,preview,created:todayISO()});
+    else p.measures.push({id:uid(),photo,ann,preview,created:todayISO(),folderId:meFolder||null});
     save();closeMeasureEditor();render();
   });
 }
