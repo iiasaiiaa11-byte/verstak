@@ -408,9 +408,9 @@
 /* ---------- storage (IndexedDB — много памяти под фото) ---------- */
 const KEY='verstak_v1';
 const IDB_NAME='verstak_store', IDB_STORE='kv';
-let DB={projects:[],tasks:[],shop:[],reminders:[]};
+let DB={projects:[],objects:[],tasks:[],shop:[],reminders:[]};
 let idb=null;
-function normalizeDB(d){return {projects:d.projects||[],tasks:d.tasks||[],shop:d.shop||[],reminders:d.reminders||[]};}
+function normalizeDB(d){return {projects:d.projects||[],objects:d.objects||[],tasks:d.tasks||[],shop:d.shop||[],reminders:d.reminders||[]};}
 function openIDB(){
   return new Promise((res,rej)=>{
     try{
@@ -462,7 +462,7 @@ function setSyncBadge(state){
   b.title={on:'Синхронизировано',saving:'Сохранение…',off:'Без синхронизации',noauth:'Войдите для синхронизации'}[state]||'Синхронизация';
 }
 function dbItemCount(d){d=d||{};return (d.projects||[]).length;}
-function dbIsEmpty(d){d=d||{};return !(d.projects&&d.projects.length)&&!(d.tasks&&d.tasks.length)&&!(d.shop&&d.shop.length)&&!(d.reminders&&d.reminders.length);}
+function dbIsEmpty(d){d=d||{};return !(d.projects&&d.projects.length)&&!(d.objects&&d.objects.length)&&!(d.tasks&&d.tasks.length)&&!(d.shop&&d.shop.length)&&!(d.reminders&&d.reminders.length);}
 
 function initSync(){
   if(typeof firebase==='undefined'||!window.firebaseConfig){setSyncBadge('off');return;}
@@ -589,6 +589,7 @@ function makeStages(){return DEFAULT_STAGES.map(n=>({name:n,date:'',done:false})
 /* ---------- state ---------- */
 let TAB='projects';
 let openProject=null;
+let openObject=null;
 let projTab='stages';
 let showArchive=false; // режим просмотра «Завершённые проекты»
 // активные проекты — всё, что не отправлено в «Завершённые»
@@ -655,15 +656,16 @@ function fin(p){
   return {income,spent,mainSpent,extraSpent,extraClient,price,prepay:+p.prepay||0,finalpay:+p.finalpay||0,remain:price-income,profit:price-spent,balance:income-spent};
 }
 
-function go(t){TAB=t;openProject=null;showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
+function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
 
 /* ---------- render router ---------- */
 function render(){
   const archMode=showArchive&&!openProject;
   const openArchived=openProject&&(DB.projects.find(x=>x.id===openProject)||{}).archived;
   const hideFab=archMode||openArchived;
-  $('fab').style.display = hideFab? 'none' : (openProject?'flex':((TAB==='calendar'||TAB==='calc')?'none':'flex'));
+  $('fab').style.display = hideFab? 'none' : ((openProject||openObject)?'flex':((TAB==='calendar'||TAB==='calc')?'none':'flex'));
   if(openProject){renderProjectDetail();return;}
+  if(openObject){renderObjectDetail();return;}
   if(TAB==='projects')renderProjects();
   else if(TAB==='tasks')renderTasks();
   else if(TAB==='shop')renderShop();
@@ -676,43 +678,139 @@ function render(){
 function renderProjects(){
   if(showArchive){return renderArchive();}
   $('subtitle').textContent='мастерская · управление производством';
-  const list=activeProjects();
-  let h='';
-  if(!list.length){
-    h=emptyState('M3 7h18M3 12h18M3 17h18','Пока нет проектов.<br>Нажми «+», чтобы добавить первый — например, «Кухонный гарнитур Ивановым».');
-  }else{
-    list.forEach(p=>{
-      const stages=p.stages||[];
-      const done=stages.filter(s=>s.done).length;
-      const pct=stages.length?Math.round(done/stages.length*100):0;
-      const badge=p.status==='done'?'<span class="badge b-done">Готов</span>':p.status==='hold'?'<span class="badge b-hold">Пауза</span>':'<span class="badge b-active">В работе</span>';
-      const taskN=(p.tasks||[]).filter(t=>!t.done).length;
-      const shopN=(p.shop||[]).filter(s=>!s.done).length;
-      const f=fin(p);
-      h+=`<div class="card proj-card" onclick="openProj('${p.id}')">
-        <div class="proj-top"><div><div class="proj-name">${esc(p.name)}</div>
-        ${(p.client||p.phone)?`<div class="proj-desc">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:(p.desc?`<div class="proj-desc">${esc(p.desc)}</div>`:'')}
-        ${(p.units&&p.units.length)?`<div class="proj-desc" style="color:var(--wood-2);margin-top:4px">📦 ${p.units.map(u=>esc(u.name)).join(', ')}</div>`:''}</div>${badge}</div>
-        <div class="pbar"><i style="width:${pct}%"></i></div>
-        <div class="pbar-label"><span>Этапы: ${done}/${stages.length}</span><span>${pct}%</span></div>
-        <div class="proj-meta">
-          ${p.price?`<span class="meta-pill">💶 <b>${money(f.income)}</b> из ${money(p.price)}</span>`:''}
-          ${p.price&&f.remain>0?`<span class="meta-pill" style="color:var(--amber)">⏳ ост. <b>${money(f.remain)}</b></span>`:''}
-          ${p.deadline?`<span class="meta-pill">📅 <b>${fmtDate(p.deadline)}</b></span>`:''}
-          ${taskN?`<span class="meta-pill">✓ <b>${taskN}</b> задач</span>`:''}
-          ${shopN?`<span class="meta-pill">🛒 <b>${shopN}</b> купить</span>`:''}
-        </div></div>`;
-    });
-    h=`<div class="proj-grid">${h}</div>`;
+  const objs=activeObjects();
+  const loose=activeProjects().filter(p=>!p.objectId||!objs.some(o=>o.id===p.objectId));
+  let h=`<div style="margin-bottom:12px"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="sheetObject()">🏠 + Объект (квартира с несколькими проектами)</button></div>`;
+  if(!objs.length&&!loose.length){
+    h+=emptyState('M3 7h18M3 12h18M3 17h18','Пока нет проектов.<br>Нажми «+», чтобы добавить проект, или «+ Объект» — квартиру с несколькими проектами.');
+    $('content').innerHTML=h;return;
+  }
+  if(objs.length){h+=`<div class="proj-grid">`;objs.forEach(o=>h+=objectCard(o));h+=`</div>`;}
+  if(loose.length){
+    if(objs.length)h+=`<div class="sec-title">Отдельные проекты</div>`;
+    h+=`<div class="proj-grid">`;loose.forEach(p=>h+=projectCard(p));h+=`</div>`;
   }
   $('content').innerHTML=h;
 }
+function projectCard(p){
+  const stages=p.stages||[];
+  const done=stages.filter(s=>s.done).length;
+  const pct=stages.length?Math.round(done/stages.length*100):0;
+  const badge=p.status==='done'?'<span class="badge b-done">Готов</span>':p.status==='hold'?'<span class="badge b-hold">Пауза</span>':'<span class="badge b-active">В работе</span>';
+  const taskN=(p.tasks||[]).filter(t=>!t.done).length;
+  const shopN=(p.shop||[]).filter(s=>!s.done).length;
+  const f=fin(p);
+  return `<div class="card proj-card" onclick="openProj('${p.id}')">
+    <div class="proj-top"><div><div class="proj-name">${esc(p.name)}</div>
+    ${(p.client||p.phone)?`<div class="proj-desc">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:(p.desc?`<div class="proj-desc">${esc(p.desc)}</div>`:'')}
+    ${(p.units&&p.units.length)?`<div class="proj-desc" style="color:var(--wood-2);margin-top:4px">📦 ${p.units.map(u=>esc(u.name)).join(', ')}</div>`:''}</div>${badge}</div>
+    <div class="pbar"><i style="width:${pct}%"></i></div>
+    <div class="pbar-label"><span>Этапы: ${done}/${stages.length}</span><span>${pct}%</span></div>
+    <div class="proj-meta">
+      ${p.price?`<span class="meta-pill">💶 <b>${money(f.income)}</b> из ${money(p.price)}</span>`:''}
+      ${p.price&&f.remain>0?`<span class="meta-pill" style="color:var(--amber)">⏳ ост. <b>${money(f.remain)}</b></span>`:''}
+      ${p.deadline?`<span class="meta-pill">📅 <b>${fmtDate(p.deadline)}</b></span>`:''}
+      ${taskN?`<span class="meta-pill">✓ <b>${taskN}</b> задач</span>`:''}
+      ${shopN?`<span class="meta-pill">🛒 <b>${shopN}</b> купить</span>`:''}
+    </div></div>`;
+}
+
+/* ---------- ОБЪЕКТЫ (группировка проектов) ---------- */
+function activeObjects(){return (DB.objects||[]).filter(o=>!o.archived);}
+function objName(oid){const o=(DB.objects||[]).find(x=>x.id===oid);return o?o.name:'';}
+function objProjects(oid){return DB.projects.filter(p=>p.objectId===oid&&!p.archived);}
+function objFin(oid){
+  const agg={income:0,price:0,spent:0,remain:0,profit:0,balance:0};
+  objProjects(oid).forEach(p=>{const f=fin(p);agg.income+=f.income;agg.price+=f.price;agg.spent+=f.spent;agg.remain+=f.remain;agg.profit+=f.profit;agg.balance+=f.balance;});
+  return agg;
+}
+function objDeadlines(oid){
+  const out=[];
+  objProjects(oid).forEach(p=>{
+    if(p.deadline)out.push({date:p.deadline,txt:'🚩 Дедлайн · '+p.name});
+    (p.stages||[]).forEach(s=>{if(s.date&&!s.done)out.push({date:s.date,txt:'🔧 '+s.name+' · '+p.name});});
+  });
+  out.sort((a,b)=>a.date<b.date?-1:(a.date>b.date?1:0));
+  return out.slice(0,4);
+}
+function objectCard(o){
+  const ps=objProjects(o.id),f=objFin(o.id),dl=objDeadlines(o.id),next=dl[0];
+  return `<div class="card proj-card" onclick="openObjectView('${o.id}')" style="border-left:3px solid var(--wood)">
+    <div class="proj-top"><div><div class="proj-name">🏠 ${esc(o.name)}</div>
+    ${(o.client||o.phone||o.address)?`<div class="proj-desc">${esc([o.client,o.phone,o.address].filter(Boolean).join(' · '))}</div>`:''}</div>
+    <span class="badge b-active">${ps.length} пр.</span></div>
+    <div class="proj-meta">
+      ${f.price?`<span class="meta-pill">💶 <b>${money(f.income)}</b> из ${money(f.price)}</span>`:''}
+      ${f.remain>0?`<span class="meta-pill" style="color:var(--amber)">⏳ ост. <b>${money(f.remain)}</b></span>`:''}
+      ${next?`<span class="meta-pill">📅 <b>${fmtDate(next.date)}</b></span>`:''}
+    </div></div>`;
+}
+function openObjectView(id){openObject=id;openProject=null;render();}
+function renderObjectDetail(){
+  const o=(DB.objects||[]).find(x=>x.id===openObject);
+  if(!o){openObject=null;return render();}
+  $('subtitle').textContent='объект · квартира';
+  const ps=objProjects(o.id),f=objFin(o.id),dl=objDeadlines(o.id);
+  let h=`<button class="back" onclick="openObject=null;render()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> К проектам</button>
+    <div class="proj-name" style="font-size:23px">🏠 ${esc(o.name)}</div>
+    ${(o.client||o.phone||o.address)?`<div class="proj-desc" style="margin-bottom:10px">${esc([o.client,o.phone,o.address].filter(Boolean).join(' · '))}</div>`:''}
+    <div class="fin-grid">
+      <div class="fin-box"><div class="fin-lbl">Сумма всех проектов</div><div class="fin-val">${money(f.price)}</div></div>
+      <div class="fin-box"><div class="fin-lbl">Получено</div><div class="fin-val green">${money(f.income)}</div></div>
+      <div class="fin-box"><div class="fin-lbl">Осталось получить</div><div class="fin-val ${f.remain>0?'amber':'green'}">${money(f.remain)}</div></div>
+      <div class="fin-box"><div class="fin-lbl">Прибыль</div><div class="fin-val ${f.profit>=0?'green':'red'}">${money(f.profit)}</div></div>
+    </div>`;
+  if(dl.length){
+    h+=`<div class="sec-title">Ближайшие сроки</div><div class="card">`;
+    dl.forEach(d=>h+=`<div class="money-row"><div style="flex:1"><div class="item-txt">${esc(d.txt)}</div><div class="item-sub">${fmtDate(d.date)}</div></div></div>`);
+    h+=`</div>`;
+  }
+  h+=`<div class="sec-title">Проекты объекта</div>
+    <button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:10px" onclick="sheetProject('${o.id}')">+ Проект в этот объект</button>`;
+  if(ps.length){h+=`<div class="proj-grid">`;ps.forEach(p=>h+=projectCard(p));h+=`</div>`;}
+  else h+=emptyState('M3 7h18M3 12h18M3 17h18','В объекте пока нет проектов.<br>Нажми «+ Проект».');
+  h+=`<div class="sec-title">Объект</div>
+    <button class="btn btn-ghost act-btn" onclick="sheetObject('${o.id}')" style="margin-bottom:10px">✏️ Изменить объект</button>
+    <button class="btn btn-ghost act-btn" onclick="delObject('${o.id}')" style="color:var(--red)">Удалить объект</button>`;
+  $('content').innerHTML=h;$('content').scrollTop=0;
+}
+function sheetObject(oid){
+  const o=oid?(DB.objects||[]).find(x=>x.id===oid):null;
+  openSheet(`<h2>${o?'Изменить объект':'Новый объект'}</h2>
+    <label class="f">Название</label>
+    <input id="oName" value="${o?esc(o.name):''}" placeholder="Напр. Квартира на ул. Иванова 5">
+    <div class="row">
+      <div><label class="f">Заказчик</label><input id="oClient" value="${o?esc(o.client||''):''}" placeholder="Имя"></div>
+      <div><label class="f">Телефон</label><input id="oPhone" type="tel" value="${o?esc(o.phone||''):''}" placeholder="+359…"></div>
+    </div>
+    <label class="f">Адрес (необязательно)</label>
+    <input id="oAddr" value="${o?esc(o.address||''):''}" placeholder="Адрес объекта">
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Отмена</button><button class="btn" onclick="saveObject('${oid||''}')">${o?'Сохранить':'Создать'}</button></div>`);
+  setTimeout(()=>$('oName').focus(),100);
+}
+function saveObject(oid){
+  const n=$('oName').value.trim();if(!n){$('oName').focus();return;}
+  const data={name:n,client:$('oClient').value.trim(),phone:$('oPhone').value.trim(),address:$('oAddr').value.trim()};
+  DB.objects=DB.objects||[];
+  if(oid){const o=DB.objects.find(x=>x.id===oid);if(o)Object.assign(o,data);save();closeSheet();render();return;}
+  const id=uid();DB.objects.unshift({id,...data,created:todayISO()});save();closeSheet();openObject=id;render();
+}
+function delObject(oid){
+  const cnt=DB.projects.filter(p=>p.objectId===oid).length;
+  if(!confirm(cnt?('Удалить объект? '+cnt+' проект(ов) внутри станут отдельными (не удалятся).'):'Удалить объект?'))return;
+  DB.projects.forEach(p=>{if(p.objectId===oid)delete p.objectId;});
+  DB.objects=(DB.objects||[]).filter(x=>x.id!==oid);
+  if(openObject===oid)openObject=null;
+  save();render();
+}
+function setProjObject(pid,oid){const p=DB.projects.find(x=>x.id===pid);if(oid)p.objectId=oid;else delete p.objectId;save();}
 
 function openProj(id){openProject=id;projTab='stages';meFolder=null;render();}
+function backFromProject(){const p=DB.projects.find(x=>x.id===openProject);openProject=null;openObject=(p&&p.objectId)?p.objectId:null;render();}
 
 /* ---------- ЗАВЕРШЁННЫЕ (АРХИВ) ---------- */
-function openArchive(){showArchive=true;TAB='projects';openProject=null;document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));render();}
-function exitArchive(){showArchive=false;openProject=null;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();}
+function openArchive(){showArchive=true;TAB='projects';openProject=null;openObject=null;document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));render();}
+function exitArchive(){showArchive=false;openProject=null;openObject=null;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();}
 function renderArchive(){
   $('subtitle').textContent='завершённые проекты · архив';
   const list=archivedProjects();
@@ -770,7 +868,8 @@ function renderProjectDetail(){
   else if(projTab==='info')body=infoView(p);
 
   $('content').innerHTML=`
-    <button class="back" onclick="openProject=null;render()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> ${ro?'К завершённым':'К проектам'}</button>
+    <button class="back" onclick="backFromProject()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> ${ro?'К завершённым':(p.objectId?'К объекту':'К проектам')}</button>
+    ${p.objectId?`<div class="proj-desc" style="color:var(--wood-2);margin-bottom:2px">🏠 ${esc(objName(p.objectId))}</div>`:''}
     <div class="proj-name" style="font-size:23px">${esc(p.name)}</div>
     ${(p.client||p.phone)?`<div class="proj-desc" style="margin-bottom:4px">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:''}
     ${(p.units&&p.units.length)?`<div class="proj-desc" style="color:var(--wood-2);margin-bottom:6px">📦 ${p.units.map(u=>esc(u.name)).join(', ')}</div>`:''}
@@ -890,6 +989,11 @@ function infoView(p){
       <div><label class="f">Заказчик</label><input id="iClient" value="${esc(p.client||'')}" onblur="setField('${p.id}','client',this.value)" placeholder="Имя"></div>
       <div><label class="f">Телефон</label><input id="iPhone" type="tel" value="${esc(p.phone||'')}" onblur="setField('${p.id}','phone',this.value)" placeholder="+359…"></div>
     </div>
+    <label class="f">Объект (квартира)</label>
+    <select id="iObj" onchange="setProjObject('${p.id}',this.value)">
+      <option value="">— Без объекта (отдельный проект) —</option>
+      ${activeObjects().map(o=>`<option value="${o.id}" ${p.objectId===o.id?'selected':''}>${esc(o.name)}</option>`).join('')}
+    </select>
     <label class="f">Статус</label>
     <select id="iStatus" onchange="setStatus('${p.id}',this.value)">
       <option value="active" ${p.status==='active'?'selected':''}>В работе</option>
@@ -1688,6 +1792,7 @@ function onFab(){
     else if(projTab==='stages'){const e=$('stName');if(e)e.focus();}
     return;
   }
+  if(openObject){sheetProject(openObject);return;}
   if(TAB==='projects')sheetProject();
   else if(TAB==='tasks')sheetTask();
   else if(TAB==='shop')sheetShop();
@@ -1696,27 +1801,37 @@ function onFab(){
 function openSheet(html){$('sheet').innerHTML=html;$('overlay').classList.add('show');}
 function closeSheet(){$('overlay').classList.remove('show');}
 
-function sheetProject(){
-  openSheet(`<h2>Новый проект</h2>
-    <label class="f">Название</label>
-    <input id="pName" placeholder="Напр. Кухня угловая" autofocus>
-    <div class="row">
+function sheetProject(objId){
+  objId=objId||'';
+  const objs=activeObjects();
+  const inObj=objId?(objs.find(o=>o.id===objId)||null):null;
+  const clientFields=objId?`<div class="fin-sub" style="margin:2px 0 8px">Заказчик и телефон — из объекта «${inObj?esc(inObj.name):''}».</div>`:`<div class="row">
       <div><label class="f">Заказчик</label><input id="pClient" placeholder="Имя"></div>
       <div><label class="f">Телефон</label><input id="pPhone" type="tel" placeholder="+359…"></div>
-    </div>
+    </div>`;
+  const objSel=(!objId&&objs.length)?`<label class="f">Объект (необязательно)</label>
+    <select id="pObj"><option value="">— Без объекта —</option>${objs.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>`:'';
+  openSheet(`<h2>Новый проект${objId?' в объекте':''}</h2>
+    <label class="f">Название</label>
+    <input id="pName" placeholder="Напр. Кухня угловая" autofocus>
+    ${clientFields}
+    ${objSel}
     <label class="f">Дедлайн (необязательно)</label>
     <input type="date" id="pDead">
     <div class="sheet-actions">
       <button class="btn btn-ghost" onclick="closeSheet()">Отмена</button>
-      <button class="btn" onclick="saveProject()">Создать</button>
+      <button class="btn" onclick="saveProject('${objId}')">Создать</button>
     </div>`);
   setTimeout(()=>$('pName').focus(),100);
 }
-function saveProject(){
+function saveProject(objId){
   const n=$('pName').value.trim();if(!n){$('pName').focus();return;}
-  DB.projects.unshift({id:uid(),name:n,client:$('pClient').value.trim(),phone:$('pPhone').value.trim(),
+  const oid=objId||($('pObj')?$('pObj').value:'')||'';
+  const proj={id:uid(),name:n,client:$('pClient')?$('pClient').value.trim():'',phone:$('pPhone')?$('pPhone').value.trim():'',
     created:todayISO(),deadline:$('pDead').value,price:0,prepay:0,finalpay:0,desc:'',
-    status:'active',units:[],stages:makeStages(),tasks:[],shop:[],mainExpenses:[],expenses:[]});
+    status:'active',units:[],stages:makeStages(),tasks:[],shop:[],mainExpenses:[],expenses:[]};
+  if(oid)proj.objectId=oid;
+  DB.projects.unshift(proj);
   save();closeSheet();render();
 }
 
