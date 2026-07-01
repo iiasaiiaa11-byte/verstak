@@ -226,6 +226,8 @@
   }
   input:focus,textarea:focus,select:focus{border-color:var(--wood);}
   textarea{resize:none;min-height:64px;}
+  /* iOS: у date/time своя мин.ширина — не даём вылезать за карточку */
+  input[type="date"],input[type="time"]{min-width:0;max-width:100%;-webkit-appearance:none;appearance:none;}
   .row{display:flex;gap:10px;}
   .row>*{flex:1;}
   .sheet-actions{display:flex;gap:10px;margin-top:20px;}
