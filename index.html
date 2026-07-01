@@ -838,6 +838,7 @@ function renderObjectDetail(){
   if(ps.length){h+=`<div class="proj-grid">`;ps.forEach(p=>h+=projectCard(p));h+=`</div>`;}
   else h+=emptyState('M3 7h18M3 12h18M3 17h18','В объекте пока нет проектов.<br>Нажми «+ Проект».');
   h+=`<div class="sec-title">Объект</div>
+    <button class="btn act-btn" onclick="objectReport('${o.id}')" style="margin-bottom:10px">📄 Отчёт по объекту (PDF)</button>
     <button class="btn btn-ghost act-btn" onclick="sheetObject('${o.id}')" style="margin-bottom:10px">✏️ Изменить объект</button>
     <button class="btn btn-ghost act-btn" onclick="delObject('${o.id}')" style="color:var(--red)">Удалить объект</button>`;
   $('content').innerHTML=h;$('content').scrollTop=0;
@@ -1053,6 +1054,48 @@ function clientReport(id){
   setTimeout(()=>window.print(),150);
 }
 
+function objectReport(oid){
+  const o=(DB.objects||[]).find(x=>x.id===oid);if(!o)return;
+  const ps=objProjects(oid);
+  const w=ws();const wsContacts=[w.phone,w.address,w.site].filter(Boolean).join(' · ');
+  let rows='',totalToPay=0,totalPaid=0;
+  ps.forEach(p=>{const f=fin(p);const toPay=f.price+f.extraClient;totalToPay+=toPay;totalPaid+=f.income;
+    rows+=`<div class="rep-row"><span>${esc(p.name)}${f.extraClient>0?` <span style="color:#999;font-weight:400">(доп. ${money(f.extraClient)})</span>`:''}</span><b>${money(toPay)}</b></div>`;});
+  const left=totalToPay-totalPaid;
+  document.getElementById('report').innerHTML=`
+    ${w.logo?`<div style="text-align:center"><img src="${w.logo}" style="max-height:64px;margin-bottom:6px"></div>`:''}
+    <div class="rep-h1">${esc(wsName())}</div>
+    ${wsContacts?`<div class="rep-sub">${esc(wsContacts)}</div>`:''}
+    <div class="rep-sub">Отчёт по объекту · ${fmtFull(todayISO())}</div>
+    <div class="rep-sec">Объект</div>
+    <div class="rep-row"><span>Название</span><b>${esc(o.name)}</b></div>
+    ${o.client?`<div class="rep-row"><span>Заказчик</span><b>${esc(o.client)}</b></div>`:''}
+    ${o.phone?`<div class="rep-row"><span>Телефон</span><b>${esc(o.phone)}</b></div>`:''}
+    ${o.address?`<div class="rep-row"><span>Адрес</span><b>${esc(o.address)}</b></div>`:''}
+    <div class="rep-sec">Проекты (${ps.length})</div>
+    ${rows||'<div style="color:#999;font-size:13px;padding:6px 0">нет</div>'}
+    <div class="rep-total"><span>Итого по всей квартире</span><span>${money(totalToPay)}</span></div>
+    <div class="rep-row"><span>Оплачено</span><b>${money(totalPaid)}</b></div>
+    <div class="rep-total"><span>Осталось доплатить</span><span>${money(left)}</span></div>
+    <div class="rep-foot">${esc(wsName())} · Спасибо за заказ!</div>`;
+  setTimeout(()=>window.print(),150);
+}
+function photosSection(p){
+  const ph=p.photos||[];
+  const grp=which=>{
+    const arr=ph.filter(x=>x.phase===which);
+    let g=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px"><b style="font-size:13px">${which==='before'?'До':'После'}</b><button class="btn btn-ghost btn-sm" onclick="addProjPhoto('${p.id}','${which}')">+ Фото</button></div>`;
+    if(arr.length){g+=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">`;arr.forEach(x=>{g+=`<div style="position:relative"><img src="${x.img}" style="width:80px;height:80px;object-fit:cover;border-radius:8px" onclick="openPhoto(this.src)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="delProjPhoto('${p.id}','${x.id}')">×</button></div>`;});g+=`</div>`;}
+    return g;
+  };
+  return `<div class="sec-title">Фото «до / после»</div><div class="card">${grp('before')}${grp('after')}</div>`;
+}
+function addProjPhoto(pid,phase){
+  const inp=document.createElement('input');inp.type='file';inp.accept='image/*';inp.style.display='none';
+  inp.onchange=()=>{pickPhoto(inp,d=>{const p=DB.projects.find(x=>x.id===pid);p.photos=p.photos||[];p.photos.push({id:uid(),phase,img:d,created:todayISO()});save();render();});setTimeout(()=>inp.remove(),100);};
+  document.body.appendChild(inp);inp.click();
+}
+function delProjPhoto(pid,id){if(!confirm('Удалить фото?'))return;const p=DB.projects.find(x=>x.id===pid);p.photos=(p.photos||[]).filter(x=>x.id!==id);save();render();}
 function infoView(p){
   const badge=p.status==='done'?'Готов':p.status==='hold'?'Пауза':'В работе';
   return `${unitsCard(p)}<div class="card" style="line-height:1.7">
@@ -1080,6 +1123,7 @@ function infoView(p){
     ${p.created?`<div class="fin-sub" style="margin-top:12px">📅 Проект создан: ${fmtDate(p.created)}</div>`:''}
     ${p.archived&&p.archivedAt?`<div class="fin-sub" style="margin-top:4px">✅ Завершён: ${fmtDate(p.archivedAt)}</div>`:''}
   </div>
+  ${photosSection(p)}
   <button class="btn act-btn" onclick="clientReport('${p.id}')" style="margin-bottom:10px">📄 Отчёт для клиента (PDF)</button>
   ${p.archived
     ? `<button class="btn act-btn" onclick="unarchiveProject('${p.id}')" style="margin-bottom:10px">↩️ Вернуть в работу</button>`
