@@ -680,12 +680,40 @@ function render(){
 }
 
 /* ---------- PROJECTS ---------- */
+function dashboardBlock(){
+  const aps=activeProjects();
+  if(!aps.length)return '';
+  let toReceive=0;aps.forEach(p=>{const f=fin(p);if(f.remain>0)toReceive+=f.remain;});
+  let buyN=0;aps.forEach(p=>buyN+=(p.shop||[]).filter(s=>!s.done).length);buyN+=(DB.shop||[]).filter(s=>!s.done).length;
+  const dls=[];
+  aps.forEach(p=>{
+    const pn=(p.objectId?objName(p.objectId)+' · ':'')+p.name;
+    if(p.deadline)dls.push({date:p.deadline,txt:pn,ic:'🚩'});
+    (p.stages||[]).forEach(s=>{if(s.date&&!s.done)dls.push({date:s.date,txt:s.name+' · '+p.name,ic:'🔧'});});
+  });
+  (DB.reminders||[]).forEach(r=>{if(r.date)dls.push({date:r.date,txt:r.txt||'',ic:'🔔'});});
+  dls.sort((a,b)=>a.date<b.date?-1:(a.date>b.date?1:0));
+  const soon=dls.slice(0,3);
+  let h=`<div class="card" style="margin-bottom:12px">
+    <div class="proj-meta" style="margin-bottom:2px">
+      ${toReceive>0?`<span class="meta-pill">💶 К получению: <b>${money(toReceive)}</b></span>`:''}
+      <span class="meta-pill">📦 <b>${aps.length}</b> в работе</span>
+      ${buyN?`<span class="meta-pill" onclick="go('shop')" style="cursor:pointer">🛒 купить <b>${buyN}</b></span>`:''}
+    </div>`;
+  if(soon.length){
+    h+=`<div class="fin-sub" style="margin:8px 0 2px">Ближайшие сроки</div>`;
+    soon.forEach(d=>{const over=d.date<todayISO();h+=`<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:3px 0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.ic} ${esc(d.txt)}</span><span style="flex-shrink:0;${over?'color:var(--red)':'color:var(--muted)'}">${fmtDate(d.date)}${over?' · просроч.':''}</span></div>`;});
+  }
+  h+=`</div>`;
+  return h;
+}
 function renderProjects(){
   if(showArchive){return renderArchive();}
   $('subtitle').textContent='мастерская · управление производством';
   const objs=activeObjects();
   const loose=activeProjects().filter(p=>!p.objectId||!objs.some(o=>o.id===p.objectId));
-  let h=`<div style="margin-bottom:12px"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="sheetObject()">🏠 + Объект</button></div>`;
+  let h=dashboardBlock();
+  h+=`<div style="margin-bottom:12px"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="sheetObject()">🏠 + Объект</button></div>`;
   if(!objs.length&&!loose.length){
     h+=emptyState('M3 7h18M3 12h18M3 17h18','Пока нет проектов.<br>Нажми «+», чтобы добавить проект, или «+ Объект» — квартиру с несколькими проектами.');
     $('content').innerHTML=h;return;
@@ -1054,7 +1082,7 @@ function moneyView(p){
     <div class="fin-box"><div class="fin-lbl">Осталось получить</div><div class="fin-val ${f.remain>0?'amber':'green'}">${money(f.remain)}</div></div>
     <div class="fin-box"><div class="fin-lbl">Основные расходы</div><div class="fin-val red">${money(f.mainSpent)}</div></div>
     <div class="fin-box"><div class="fin-lbl">Доп. расходы</div><div class="fin-val red">${money(f.extraSpent)}</div>${f.extraClient>0?`<div class="fin-sub">📄 в отчёт: ${money(f.extraClient)}</div>`:''}</div>
-    <div class="fin-box wide"><div class="fin-lbl">Прибыль (сумма − все расходы)</div><div class="fin-val ${f.profit>=0?'green':'red'}">${money(f.profit)}</div></div>
+    <div class="fin-box wide"><div class="fin-lbl">Прибыль (сумма − все расходы)</div><div class="fin-val ${f.profit>=0?'green':'red'}">${money(f.profit)}</div>${f.price>0?`<div class="fin-sub">маржа ${Math.round(f.profit/f.price*100)}% от суммы</div>`:''}</div>
     <div class="fin-box wide"><div class="fin-lbl">Баланс на руках (получено − расходы)</div><div class="fin-val ${f.balance>=0?'blue':'red'}">${money(f.balance)}</div></div>
   </div>
   ${expenseSection(p,'main','Основные расходы')}
