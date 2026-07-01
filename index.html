@@ -64,6 +64,8 @@
   header h1 .mark{color:var(--wood-2);}
   header .sub{color:var(--muted);font-size:12px;margin-top:2px;letter-spacing:0.3px;}
   .hdr-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+  .proj-search{width:100%;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:12px;padding:11px 14px;font-family:'Inter';font-size:14px;}
+  .proj-search:focus{border-color:var(--wood);outline:none;}
   .backup{display:flex;gap:6px;flex-shrink:0;margin-top:3px;flex-wrap:wrap;justify-content:flex-end;max-width:62%;}
   .backup button{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;color:var(--muted);padding:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
   .backup button svg{width:17px;height:17px;stroke:var(--wood-2);fill:none;stroke-width:1.8;}
@@ -597,6 +599,7 @@ let openObject=null;
 let projTab='stages';
 let showArchive=false; // режим просмотра «Завершённые проекты»
 let showSettings=false;
+let projQuery='';
 // активные проекты — всё, что не отправлено в «Завершённые»
 function activeProjects(){return DB.projects.filter(p=>!p.archived);}
 function archivedProjects(){return DB.projects.filter(p=>p.archived);}
@@ -660,7 +663,7 @@ function fin(p){
   return {income,spent,mainSpent,extraSpent,extraClient,price,prepay:+p.prepay||0,finalpay:+p.finalpay||0,remain:price-income,profit:price-spent,balance:income-spent};
 }
 
-function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;showSettings=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
+function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;showSettings=false;projQuery='';document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
 
 /* ---------- render router ---------- */
 function render(){
@@ -710,20 +713,38 @@ function dashboardBlock(){
 function renderProjects(){
   if(showArchive){return renderArchive();}
   $('subtitle').textContent='мастерская · управление производством';
+  $('content').innerHTML=`<input id="projSearch" class="proj-search" value="${esc(projQuery||'')}" oninput="projQuery=this.value;filterProjects()" placeholder="🔍 Поиск: проект, объект, клиент, телефон"><div id="projList"></div>`;
+  filterProjects();
+}
+function filterProjects(){
+  const box=$('projList');if(!box)return;
+  const q=(projQuery||'').trim().toLowerCase();
   const objs=activeObjects();
+  const hay=x=>[x.name,x.client,x.phone,x.address].filter(Boolean).join(' ').toLowerCase();
+  let h='';
+  if(q){
+    const mObjs=objs.filter(o=>hay(o).includes(q));
+    const mProjs=activeProjects().filter(p=>hay(p).includes(q)||(p.objectId&&objName(p.objectId).toLowerCase().includes(q)));
+    if(!mObjs.length&&!mProjs.length){h=emptyState('M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-4.3-4.3','По запросу ничего не найдено.');}
+    else{
+      if(mObjs.length){h+=`<div class="sec-title">Объекты</div><div class="proj-grid">`;mObjs.forEach(o=>h+=objectCard(o));h+=`</div>`;}
+      if(mProjs.length){h+=`<div class="sec-title">Проекты</div><div class="proj-grid">`;mProjs.forEach(p=>h+=projectCard(p));h+=`</div>`;}
+    }
+    box.innerHTML=h;return;
+  }
   const loose=activeProjects().filter(p=>!p.objectId||!objs.some(o=>o.id===p.objectId));
-  let h=dashboardBlock();
+  h=dashboardBlock();
   h+=`<div style="margin-bottom:12px"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="sheetObject()">🏠 + Объект</button></div>`;
   if(!objs.length&&!loose.length){
     h+=emptyState('M3 7h18M3 12h18M3 17h18','Пока нет проектов.<br>Нажми «+», чтобы добавить проект, или «+ Объект» — квартиру с несколькими проектами.');
-    $('content').innerHTML=h;return;
+    box.innerHTML=h;return;
   }
   if(objs.length){h+=`<div class="proj-grid">`;objs.forEach(o=>h+=objectCard(o));h+=`</div>`;}
   if(loose.length){
     if(objs.length)h+=`<div class="sec-title">Отдельные проекты</div>`;
     h+=`<div class="proj-grid">`;loose.forEach(p=>h+=projectCard(p));h+=`</div>`;
   }
-  $('content').innerHTML=h;
+  box.innerHTML=h;
 }
 function projectCard(p){
   const stages=p.stages||[];
