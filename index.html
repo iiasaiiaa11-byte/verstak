@@ -64,9 +64,9 @@
   header h1 .mark{color:var(--wood-2);}
   header .sub{color:var(--muted);font-size:12px;margin-top:2px;letter-spacing:0.3px;}
   .hdr-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
-  .backup{display:flex;gap:7px;flex-shrink:0;margin-top:3px;}
-  .backup button{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;color:var(--muted);padding:7px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
-  .backup button svg{width:18px;height:18px;stroke:var(--wood-2);fill:none;stroke-width:1.8;}
+  .backup{display:flex;gap:6px;flex-shrink:0;margin-top:3px;flex-wrap:wrap;justify-content:flex-end;max-width:62%;}
+  .backup button{background:var(--panel-2);border:1px solid var(--line);border-radius:9px;color:var(--muted);padding:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .backup button svg{width:17px;height:17px;stroke:var(--wood-2);fill:none;stroke-width:1.8;}
   .backup button:active{background:var(--line);}
 
   /* Content */
@@ -346,12 +346,6 @@
         </button>
         <button onclick="openArchive()" title="Завершённые проекты">
           <svg viewBox="0 0 24 24"><path d="M3 7h18v3H3zM5 10v9a1 1 0 001 1h12a1 1 0 001-1v-9M9 14h6"/></svg>
-        </button>
-        <button onclick="exportData()" title="Сохранить копию">
-          <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 21h14"/></svg>
-        </button>
-        <button onclick="document.getElementById('importFile').click()" title="Загрузить копию">
-          <svg viewBox="0 0 24 24"><path d="M12 21V9m0 0l-4 4m4-4l4 4M5 3h14"/></svg>
         </button>
         <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
       </div>
@@ -1866,6 +1860,13 @@ function renderSettings(){
       <label class="f">Время утреннего напоминания</label>
       <select onchange="setNotifyHour(this.value)">${Array.from({length:17},(_,k)=>k+6).map(hh=>`<option value="${hh}" ${notifyHour()===hh?'selected':''}>${String(hh).padStart(2,'0')}:00</option>`).join('')}</select>
       <div class="fin-sub" style="margin-top:8px">Одно уведомление в день о сроках на сегодня и завтра. Новое время применится после синхронизации.</div>
+    </div>
+
+    <div class="sec-title">Резервная копия</div>
+    <div class="card">
+      <button class="btn btn-ghost btn-sm" style="width:100%" onclick="exportData()">⬇️ Сохранить копию в файл</button>
+      <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="document.getElementById('importFile').click()">⬆️ Загрузить копию из файла</button>
+      <div class="fin-sub" style="margin-top:8px">Выгрузка/загрузка всех данных в файл. Облачная синхронизация работает отдельно.</div>
     </div>
     <div style="height:30px"></div>`;
   $('content').innerHTML=h;$('content').scrollTop=0;
