@@ -29,6 +29,11 @@
     --amber:#d9a13b;
     --blue:#5e8aa8;
   }
+  body[data-theme="light"]{
+    --bg:#f4efe7;--panel:#ffffff;--panel-2:#efe8dc;--line:#e0d6c5;--text:#2c2722;--muted:#8a8172;
+    --green:#5f8a3a;--red:#c4583f;--amber:#c98a1e;--blue:#3f6f8f;
+    background-image:none!important;
+  }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
   body{
@@ -333,6 +338,9 @@
         <button id="notifBadge" onclick="enableNotifs()" title="Включить уведомления о сроках" style="color:var(--muted)">
           <svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>
         </button>
+        <button onclick="openSettings()" title="Настройки">
+          <svg viewBox="0 0 24 24"><path d="M4 6h9M4 12h2M10 12h10M4 18h6"/><circle cx="17" cy="6" r="2.4"/><circle cx="8" cy="12" r="2.4"/><circle cx="14" cy="18" r="2.4"/></svg>
+        </button>
         <button onclick="go('calc')" title="Калькулятор кухни">
           <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8"/><path d="M8 12h3M14 12h2M8 16h3M14 16h2"/></svg>
         </button>
@@ -408,9 +416,9 @@
 /* ---------- storage (IndexedDB — много памяти под фото) ---------- */
 const KEY='verstak_v1';
 const IDB_NAME='verstak_store', IDB_STORE='kv';
-let DB={projects:[],objects:[],tasks:[],shop:[],reminders:[]};
+let DB={projects:[],objects:[],tasks:[],shop:[],reminders:[],settings:{}};
 let idb=null;
-function normalizeDB(d){return {projects:d.projects||[],objects:d.objects||[],tasks:d.tasks||[],shop:d.shop||[],reminders:d.reminders||[]};}
+function normalizeDB(d){return {projects:d.projects||[],objects:d.objects||[],tasks:d.tasks||[],shop:d.shop||[],reminders:d.reminders||[],settings:d.settings||{}};}
 function openIDB(){
   return new Promise((res,rej)=>{
     try{
@@ -434,6 +442,7 @@ async function init(){
   }catch(e){
     try{const r=localStorage.getItem(KEY);if(r)DB=normalizeDB(JSON.parse(r));}catch(e2){}
   }
+  applySettings();
   render();
   if('serviceWorker' in navigator && location.protocol.startsWith('http')){
     navigator.serviceWorker.register('sw.js').catch(()=>{});
@@ -517,6 +526,7 @@ function applyRemote(v){
   lastAppliedUpd=v._updated||Date.now();
   saveLocalOnly();
   if(openProject){openProject=DB.projects.find(p=>p.id===openProject.id)||null;}
+  applySettings();
   render();
   setSyncBadge('on');
 }
@@ -582,7 +592,7 @@ async function refreshPushSub(){ // при старте: если уже раз�
 }
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 const DEFAULT_STAGES=['Предварительный расчёт','Замер','Согласование','Проектировка','Итоговое согласование','Запуск в производство','Закупки','Выдача с производства','Монтаж'];
-const SUPPLIERS=['Salex','Lamino','Балкан Юг','Элаз','Мастер-Хаус','Интериори','Asco'];
+const DEFAULT_SUPPLIERS=['Salex','Lamino','Балкан Юг','Элаз','Мастер-Хаус','Интериори','Asco'];
 const CALC_URL='https://iiasaiiaa11-byte.github.io/kalkulator.html';
 function makeStages(){return DEFAULT_STAGES.map(n=>({name:n,date:'',done:false}));}
 
@@ -592,6 +602,7 @@ let openProject=null;
 let openObject=null;
 let projTab='stages';
 let showArchive=false; // режим просмотра «Завершённые проекты»
+let showSettings=false;
 // активные проекты — всё, что не отправлено в «Завершённые»
 function activeProjects(){return DB.projects.filter(p=>!p.archived);}
 function archivedProjects(){return DB.projects.filter(p=>p.archived);}
@@ -643,8 +654,7 @@ const $=id=>document.getElementById(id);
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function fmtDate(d){if(!d)return '';const dt=new Date(d+'T00:00');return dt.toLocaleDateString('ru-RU',{day:'numeric',month:'short'});}
 function daysLeft(d){if(!d)return null;const t=new Date();t.setHours(0,0,0,0);const dt=new Date(d+'T00:00');return Math.round((dt-t)/86400000);}
-const CUR='€';
-function money(n){n=Number(n)||0;return n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' '+CUR;}
+function money(n){n=Number(n)||0;return n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' '+curSym();}
 function todayISO(){return new Date().toISOString().slice(0,10);}
 function fin(p){
   const income=(+p.prepay||0)+(+p.finalpay||0);
@@ -656,10 +666,11 @@ function fin(p){
   return {income,spent,mainSpent,extraSpent,extraClient,price,prepay:+p.prepay||0,finalpay:+p.finalpay||0,remain:price-income,profit:price-spent,balance:income-spent};
 }
 
-function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
+function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;showSettings=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
 
 /* ---------- render router ---------- */
 function render(){
+  if(showSettings){$('fab').style.display='none';renderSettings();return;}
   const archMode=showArchive&&!openProject;
   const openArchived=openProject&&(DB.projects.find(x=>x.id===openProject)||{}).archived;
   const hideFab=archMode||openArchived;
@@ -958,8 +969,11 @@ function clientReport(id){
     extras.forEach(x=>{exp+=`<div class="rep-exp"><div class="rep-exp-top"><span>${esc(x.title)}${x.date?` <span style="color:#999;font-weight:400">(${fmtFull(x.date)})</span>`:''}</span><b>${money(x.amount)}</b></div>${x.photo?`<img src="${x.photo}" class="rep-photo">`:''}</div>`;});
   } else exp='<div style="color:#999;font-size:13px;padding:6px 0">нет</div>';
   const units=(p.units||[]).map(u=>esc(u.name)).join(', ');
+  const w=ws();const wsContacts=[w.phone,w.address,w.site].filter(Boolean).join(' · ');
   document.getElementById('report').innerHTML=`
-    <div class="rep-h1">AAA MEBELI</div>
+    ${w.logo?`<div style="text-align:center"><img src="${w.logo}" style="max-height:64px;margin-bottom:6px"></div>`:''}
+    <div class="rep-h1">${esc(wsName())}</div>
+    ${wsContacts?`<div class="rep-sub">${esc(wsContacts)}</div>`:''}
     <div class="rep-sub">Отчёт по заказу · ${fmtFull(todayISO())}</div>
     <div class="rep-sec">Заказ</div>
     <div class="rep-row"><span>Название</span><b>${esc(p.name)}</b></div>
@@ -976,7 +990,7 @@ function clientReport(id){
     <div class="rep-total"><span>Итого к оплате</span><span>${money(totalToPay)}</span></div>
     <div class="rep-row"><span>Оплачено (предоплата + доплата)</span><b>${money(f.income)}</b></div>
     <div class="rep-total"><span>Осталось доплатить</span><span>${money(left)}</span></div>
-    <div class="rep-foot">AAA Mebeli · Спасибо за заказ!</div>`;
+    <div class="rep-foot">${esc(wsName())} · Спасибо за заказ!</div>`;
   setTimeout(()=>window.print(),150);
 }
 
@@ -1034,11 +1048,11 @@ function moneyView(p){
   const f=fin(p);
   let h=`
   <div class="card">
-    <label class="f">Основная сумма (€)</label>
+    <label class="f">Основная сумма (${curSym()})</label>
     <input type="number" inputmode="decimal" value="${p.price||''}" placeholder="0" onchange="setMoney('${p.id}','price',this.value)">
     <div class="row" style="margin-top:6px">
-      <div><label class="f">Предоплата (€)</label><input type="number" inputmode="decimal" value="${p.prepay||''}" placeholder="0" onchange="setMoney('${p.id}','prepay',this.value)"></div>
-      <div><label class="f">Доплата (€)</label><input type="number" inputmode="decimal" value="${p.finalpay||''}" placeholder="0" onchange="setMoney('${p.id}','finalpay',this.value)"></div>
+      <div><label class="f">Предоплата (${curSym()})</label><input type="number" inputmode="decimal" value="${p.prepay||''}" placeholder="0" onchange="setMoney('${p.id}','prepay',this.value)"></div>
+      <div><label class="f">Доплата (${curSym()})</label><input type="number" inputmode="decimal" value="${p.finalpay||''}" placeholder="0" onchange="setMoney('${p.id}','finalpay',this.value)"></div>
     </div>
   </div>
   <div class="fin-grid">
@@ -1081,7 +1095,7 @@ function sheetExpense(id,kind,itemId){
   const cp=it?(it.clientPay?1:0):0; expClientPay=cp;
   openSheet(`<h2>${it?'Изменить расход':(kind==='main'?'Основной расход':'Дополнительный расход')}</h2>
     <label class="f">На что потрачено</label><input id="exTxt" placeholder="Фурнитура, доставка…" value="${it?esc(it.title):''}">
-    <label class="f">Сумма (€)</label><input id="exAmt" type="number" inputmode="decimal" placeholder="0" value="${it?it.amount:''}">
+    <label class="f">Сумма (${curSym()})</label><input id="exAmt" type="number" inputmode="decimal" placeholder="0" value="${it?it.amount:''}">
     ${kind==='extra'?`<label class="f">Показать в отчёте для клиента?</label>
     <div class="seg" id="exClientSeg">
       <button type="button" data-v="0" class="${cp?'':'on'}" onclick="setExpClient(0)">Нет</button>
@@ -1145,10 +1159,10 @@ function sheetProjShop(id,itemId){
     <label class="f">Что купить</label><input id="psTxt" placeholder="Напр. Петли Blum" value="${it?esc(it.txt):''}">
     <div class="row">
       <div><label class="f">Кол-во</label><input id="psQty" placeholder="20 шт" value="${it?esc(it.qty||''):''}"></div>
-      <div><label class="f">Цена (€)</label><input id="psPrice" type="number" inputmode="decimal" placeholder="0" value="${it?(it.price||''):''}"></div>
+      <div><label class="f">Цена (${curSym()})</label><input id="psPrice" type="number" inputmode="decimal" placeholder="0" value="${it?(it.price||''):''}"></div>
     </div>
     <label class="f">Поставщик</label>
-    <div class="chips" id="psSupChips">${SUPPLIERS.map(s=>`<button type="button" class="chip ${it&&it.supplier===s?'on':''}" onclick="pickSup(this,'${s}')">${s}</button>`).join('')}</div>
+    <div class="chips" id="psSupChips">${supList().map(s=>`<button type="button" class="chip ${it&&it.supplier===s?'on':''}" onclick="pickSup(this,'${s}')">${s}</button>`).join('')}</div>
     <input id="psSup" placeholder="или впишите своего…" value="${it?esc(it.supplier||''):''}" style="margin-top:8px">
     <label class="f">Доп. информация (необязательно)</label>
     <textarea id="psNote" rows="2" placeholder="Напр. артикул, цвет, размер, кому звонить…">${it?esc(it.note||''):''}</textarea>
@@ -1279,7 +1293,7 @@ function collectShopItems(){
 function shopGroupsHTML(items){
   const groups={};
   items.forEach(o=>{const k=(o.s.supplier&&o.s.supplier.trim())||'Без поставщика';(groups[k]=groups[k]||[]).push(o);});
-  const order=[...SUPPLIERS];
+  const order=[...supList()];
   Object.keys(groups).forEach(k=>{if(!order.includes(k)&&k!=='Без поставщика')order.push(k);});
   order.push('Без поставщика');
   let h='';
@@ -1782,6 +1796,90 @@ function saveMeasure(){
   });
 }
 
+/* ---------- НАСТРОЙКИ ---------- */
+function stg(){DB.settings=DB.settings||{};return DB.settings;}
+function ws(){return stg().workshop||{};}
+function wsName(){return (ws().name||'').trim()||'ВЕРСТАК';}
+function curSym(){return stg().currency||'€';}
+function supList(){const s=stg().suppliers;return (s&&s.length)?s:DEFAULT_SUPPLIERS;}
+function themeMode(){return (stg().theme&&stg().theme.mode)||'dark';}
+function themeAccent(){return (stg().theme&&stg().theme.accent)||'#c08a4a';}
+function notifyHour(){const h=stg().notifyHour;return (h===0||h)?h:9;}
+function lighten(hex){const m=(hex||'').replace('#','');if(m.length!==6)return hex;const p=i=>parseInt(m.substr(i,2),16);const f=x=>Math.round(x+(255-x)*0.22).toString(16).padStart(2,'0');return '#'+f(p(0))+f(p(2))+f(p(4));}
+function applySettings(){
+  document.body.dataset.theme=themeMode();
+  const a=themeAccent();
+  document.documentElement.style.setProperty('--wood',a);
+  document.documentElement.style.setProperty('--wood-2',lighten(a));
+  const h1=document.querySelector('header h1');if(h1)h1.innerHTML='<span class="mark">▰</span> '+esc(wsName());
+  const lg=document.querySelector('.login-logo');if(lg)lg.textContent='▰ '+wsName();
+}
+function openSettings(){showSettings=true;openProject=null;openObject=null;showArchive=false;render();}
+function renderSettings(){
+  $('subtitle').textContent='настройки';
+  const w=ws();
+  const accents=['#c08a4a','#5e8aa8','#7fa650','#c4583f','#9b6dc4','#d9a13b'];
+  const curs=['€','$','₽','£'];
+  let h=`<button class="back" onclick="showSettings=false;render()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Назад</button>
+    <div class="proj-name" style="font-size:23px">⚙️ Настройки</div>
+
+    <div class="sec-title">Профиль мастерской</div>
+    <div class="card">
+      ${w.logo?`<div style="text-align:center;margin-bottom:8px"><img src="${w.logo}" style="max-height:70px;border-radius:8px"><br><button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="setWs('logo','');renderSettings()">Убрать логотип</button></div>`:''}
+      <input type="file" accept="image/*" id="wsLogo" style="display:none" onchange="onLogoPick(this)">
+      <button class="btn btn-ghost btn-sm" style="width:100%" onclick="$('wsLogo').click()">🖼 ${w.logo?'Заменить логотип':'Загрузить логотип'}</button>
+      <label class="f" style="margin-top:10px">Название мастерской</label>
+      <input value="${esc(w.name||'')}" placeholder="Напр. AAA Mebeli" onblur="setWs('name',this.value)">
+      <div class="row">
+        <div><label class="f">Телефон</label><input value="${esc(w.phone||'')}" placeholder="+359…" onblur="setWs('phone',this.value)"></div>
+        <div><label class="f">Сайт</label><input value="${esc(w.site||'')}" placeholder="site.com" onblur="setWs('site',this.value)"></div>
+      </div>
+      <label class="f">Адрес</label>
+      <input value="${esc(w.address||'')}" placeholder="Адрес мастерской" onblur="setWs('address',this.value)">
+      <div class="fin-sub" style="margin-top:8px">Подставляется в PDF-отчёт клиенту и в шапку приложения.</div>
+    </div>
+
+    <div class="sec-title">Оформление</div>
+    <div class="card">
+      <label class="f">Тема</label>
+      <div class="chips">
+        <button type="button" class="chip ${themeMode()==='dark'?'on':''}" onclick="setTheme('dark')">🌙 Тёмная</button>
+        <button type="button" class="chip ${themeMode()==='light'?'on':''}" onclick="setTheme('light')">☀️ Светлая</button>
+      </div>
+      <label class="f" style="margin-top:12px">Цвет акцента</label>
+      <div class="chips" style="align-items:center;gap:10px">
+        ${accents.map(c=>`<button type="button" onclick="setAccent('${c}')" style="width:30px;height:30px;border-radius:50%;border:2px solid ${themeAccent().toLowerCase()===c?'var(--text)':'transparent'};background:${c};cursor:pointer"></button>`).join('')}
+        <input type="color" value="${themeAccent()}" onchange="setAccent(this.value)" style="width:36px;height:32px;padding:0;border:none;background:none;cursor:pointer">
+      </div>
+    </div>
+
+    <div class="sec-title">Валюта</div>
+    <div class="card"><div class="chips">${curs.map(c=>`<button type="button" class="chip ${curSym()===c?'on':''}" onclick="setCurrency('${c}')">${c}</button>`).join('')}</div></div>
+
+    <div class="sec-title">Поставщики</div>
+    <div class="card">`;
+  supList().forEach((sup,i)=>{h+=`<div class="money-row"><div style="flex:1;cursor:pointer" onclick="renameSupplier(${i})"><div class="item-txt">${esc(sup)}</div></div><button class="del" onclick="delSupplier(${i})">×</button></div>`;});
+  h+=`</div><button class="btn btn-ghost btn-sm" style="width:100%" onclick="addSupplier()">+ Добавить поставщика</button>
+
+    <div class="sec-title">Уведомления</div>
+    <div class="card">
+      <label class="f">Время утреннего напоминания</label>
+      <select onchange="setNotifyHour(this.value)">${Array.from({length:17},(_,k)=>k+6).map(hh=>`<option value="${hh}" ${notifyHour()===hh?'selected':''}>${String(hh).padStart(2,'0')}:00</option>`).join('')}</select>
+      <div class="fin-sub" style="margin-top:8px">Одно уведомление в день о сроках на сегодня и завтра. Новое время применится после синхронизации.</div>
+    </div>
+    <div style="height:30px"></div>`;
+  $('content').innerHTML=h;$('content').scrollTop=0;
+}
+function setWs(f,v){const s=stg();s.workshop=s.workshop||{};s.workshop[f]=(typeof v==='string')?v.trim():v;save();applySettings();}
+function onLogoPick(input){pickPhoto(input,d=>{setWs('logo',d);renderSettings();});}
+function setTheme(m){const s=stg();s.theme=s.theme||{};s.theme.mode=m;save();applySettings();renderSettings();}
+function setAccent(c){const s=stg();s.theme=s.theme||{};s.theme.accent=c;save();applySettings();renderSettings();}
+function setCurrency(c){stg().currency=c;save();renderSettings();}
+function setNotifyHour(h){stg().notifyHour=+h;save();}
+function addSupplier(){const n=prompt('Название поставщика:','');if(n&&n.trim()){const s=stg();s.suppliers=supList().slice();s.suppliers.push(n.trim());save();renderSettings();}}
+function renameSupplier(i){const list=supList();const n=prompt('Название поставщика:',list[i]);if(n===null)return;const s=stg();s.suppliers=list.slice();if(n.trim())s.suppliers[i]=n.trim();save();renderSettings();}
+function delSupplier(i){const s=stg();s.suppliers=supList().slice();s.suppliers.splice(i,1);save();renderSettings();}
+
 /* ---------- FAB / sheets ---------- */
 function onFab(){
   if(openProject){
@@ -1862,12 +1960,12 @@ function sheetShop(mode,a,b){
     <label class="f">Что купить</label><input id="gsTxt" placeholder="Напр. Петли Blum" value="${it?esc(it.txt):''}">
     <div class="row">
       <div><label class="f">Кол-во</label><input id="gsQty" placeholder="20 шт" value="${it?esc(it.qty||''):''}"></div>
-      <div><label class="f">Цена (€)</label><input id="gsPrice" type="number" inputmode="decimal" placeholder="0" value="${it?(it.price||''):''}"></div>
+      <div><label class="f">Цена (${curSym()})</label><input id="gsPrice" type="number" inputmode="decimal" placeholder="0" value="${it?(it.price||''):''}"></div>
     </div>
     <label class="f">К какому проекту</label>
     <select id="gsProj">${projOpts}</select>
     <label class="f">Поставщик</label>
-    <div class="chips" id="gsSupChips">${SUPPLIERS.map(s=>`<button type="button" class="chip ${it&&it.supplier===s?'on':''}" onclick="pickSupG(this,'${s}')">${s}</button>`).join('')}</div>
+    <div class="chips" id="gsSupChips">${supList().map(s=>`<button type="button" class="chip ${it&&it.supplier===s?'on':''}" onclick="pickSupG(this,'${s}')">${s}</button>`).join('')}</div>
     <input id="gsSup" placeholder="или впишите своего…" value="${it?esc(it.supplier||''):''}" style="margin-top:8px">
     <label class="f">Доп. информация (необязательно)</label>
     <textarea id="gsNote" rows="2" placeholder="Напр. артикул, цвет, размер, кому звонить…">${it?esc(it.note||''):''}</textarea>
