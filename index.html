@@ -30,10 +30,17 @@
     --blue:#5e8aa8;
   }
   body[data-theme="light"]{
-    --bg:#f4efe7;--panel:#ffffff;--panel-2:#efe8dc;--line:#e0d6c5;--text:#2c2722;--muted:#8a8172;
-    --green:#5f8a3a;--red:#c4583f;--amber:#c98a1e;--blue:#3f6f8f;
+    --bg:#f1efe9;--panel:#ffffff;--panel-2:#f3f0ea;--line:#e4dfd6;--text:#231e18;--muted:#8a8175;
+    --green:#4f8a3d;--red:#c1543c;--amber:#bd7d1a;--blue:#3d6f92;
     background-image:none!important;
   }
+  body[data-theme="light"] .card,
+  body[data-theme="light"] .fin-box{box-shadow:0 1px 2px rgba(40,32,22,.05),0 6px 16px rgba(40,32,22,.05);}
+  body[data-theme="light"] nav{box-shadow:0 4px 18px rgba(40,32,22,.14);}
+  body[data-theme="light"] .fab{box-shadow:0 8px 20px rgba(192,138,74,.40);}
+  body[data-theme="light"] .sheet{box-shadow:0 -8px 30px rgba(40,32,22,.14);}
+  body[data-theme="light"] .backup button,
+  body[data-theme="light"] .chip{background:#fff;}
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{height:100%;}
   body{
@@ -1864,9 +1871,11 @@ function applySettings(){
   const h1=document.querySelector('header h1');if(h1)h1.innerHTML='<span class="mark">▰</span> '+esc(wsName());
   const lg=document.querySelector('.login-logo');if(lg)lg.textContent='▰ '+wsName();
 }
-function openSettings(){showSettings=true;openProject=null;openObject=null;showArchive=false;render();}
+let _setScrollReset=true;
+function openSettings(){_setScrollReset=true;showSettings=true;openProject=null;openObject=null;showArchive=false;showClients=false;cliView=null;render();}
 function renderSettings(){
   $('subtitle').textContent='настройки';
+  const _el=$('content');const _sc=(_setScrollReset||!_el)?0:_el.scrollTop;_setScrollReset=false;
   const w=ws();
   const accents=['#c08a4a','#5e8aa8','#7fa650','#c4583f','#9b6dc4','#d9a13b'];
   const curs=['€','$','₽','£'];
@@ -1925,7 +1934,7 @@ function renderSettings(){
       <div class="fin-sub" style="margin-top:8px">Выгрузка/загрузка всех данных в файл. Облачная синхронизация работает отдельно.</div>
     </div>
     <div style="height:30px"></div>`;
-  $('content').innerHTML=h;$('content').scrollTop=0;
+  $('content').innerHTML=h;$('content').scrollTop=_sc;
 }
 function setWs(f,v){const s=stg();s.workshop=s.workshop||{};s.workshop[f]=(typeof v==='string')?v.trim():v;save();applySettings();}
 function onLogoPick(input){pickPhoto(input,d=>{setWs('logo',d);renderSettings();});}
