@@ -346,6 +346,9 @@
         <button onclick="go('calc')" title="Калькулятор кухни">
           <svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8"/><path d="M8 12h3M14 12h2M8 16h3M14 16h2"/></svg>
         </button>
+        <button onclick="openClients()" title="Клиенты">
+          <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 5.5a3 3 0 010 5.6M18.5 20c0-2.6-1-4.4-3-5"/></svg>
+        </button>
         <button onclick="openArchive()" title="Завершённые проекты">
           <svg viewBox="0 0 24 24"><path d="M3 7h18v3H3zM5 10v9a1 1 0 001 1h12a1 1 0 001-1v-9M9 14h6"/></svg>
         </button>
@@ -412,9 +415,9 @@
 /* ---------- storage (IndexedDB — много памяти под фото) ---------- */
 const KEY='verstak_v1';
 const IDB_NAME='verstak_store', IDB_STORE='kv';
-let DB={projects:[],objects:[],tasks:[],shop:[],reminders:[],settings:{}};
+let DB={projects:[],objects:[],clients:[],tasks:[],shop:[],reminders:[],settings:{}};
 let idb=null;
-function normalizeDB(d){return {projects:d.projects||[],objects:d.objects||[],tasks:d.tasks||[],shop:d.shop||[],reminders:d.reminders||[],settings:d.settings||{}};}
+function normalizeDB(d){return {projects:d.projects||[],objects:d.objects||[],clients:d.clients||[],tasks:d.tasks||[],shop:d.shop||[],reminders:d.reminders||[],settings:d.settings||{}};}
 function openIDB(){
   return new Promise((res,rej)=>{
     try{
@@ -599,6 +602,7 @@ let openObject=null;
 let projTab='stages';
 let showArchive=false; // режим просмотра «Завершённые проекты»
 let showSettings=false;
+let showClients=false, cliView=null, _cliMerged=[];
 let projQuery='';
 // активные проекты — всё, что не отправлено в «Завершённые»
 function activeProjects(){return DB.projects.filter(p=>!p.archived);}
@@ -663,11 +667,12 @@ function fin(p){
   return {income,spent,mainSpent,extraSpent,extraClient,price,prepay:+p.prepay||0,finalpay:+p.finalpay||0,remain:price-income,profit:price-spent,balance:income-spent};
 }
 
-function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;showSettings=false;projQuery='';document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
+function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;showSettings=false;showClients=false;cliView=null;projQuery='';document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
 
 /* ---------- render router ---------- */
 function render(){
   if(showSettings){$('fab').style.display='none';renderSettings();return;}
+  if(showClients){$('fab').style.display='none';if(cliView)renderClientDetail();else renderClients();return;}
   const archMode=showArchive&&!openProject;
   const openArchived=openProject&&(DB.projects.find(x=>x.id===openProject)||{}).archived;
   const hideFab=archMode||openArchived;
@@ -799,7 +804,7 @@ function objectCard(o){
       ${next?`<span class="meta-pill">📅 <b>${fmtDate(next.date)}</b></span>`:''}
     </div></div>`;
 }
-function openObjectView(id){openObject=id;openProject=null;render();}
+function openObjectView(id){openObject=id;openProject=null;showClients=false;cliView=null;render();}
 function renderObjectDetail(){
   const o=(DB.objects||[]).find(x=>x.id===openObject);
   if(!o){openObject=null;return render();}
@@ -833,6 +838,7 @@ function sheetObject(oid){
   openSheet(`<h2>${o?'Изменить объект':'Новый объект'}</h2>
     <label class="f">Название</label>
     <input id="oName" value="${o?esc(o.name):''}" placeholder="Напр. Квартира на ул. Иванова 5">
+    ${clientPickHTML('oClient','oPhone')}
     <div class="row">
       <div><label class="f">Заказчик</label><input id="oClient" value="${o?esc(o.client||''):''}" placeholder="Имя"></div>
       <div><label class="f">Телефон</label><input id="oPhone" type="tel" value="${o?esc(o.phone||''):''}" placeholder="+359…"></div>
@@ -845,6 +851,7 @@ function sheetObject(oid){
 function saveObject(oid){
   const n=$('oName').value.trim();if(!n){$('oName').focus();return;}
   const data={name:n,client:$('oClient').value.trim(),phone:$('oPhone').value.trim(),address:$('oAddr').value.trim()};
+  ensureClient(data.client,data.phone);
   DB.objects=DB.objects||[];
   if(oid){const o=DB.objects.find(x=>x.id===oid);if(o)Object.assign(o,data);save();closeSheet();render();return;}
   const id=uid();DB.objects.unshift({id,...data,created:todayISO()});save();closeSheet();openObject=id;render();
@@ -859,7 +866,7 @@ function delObject(oid){
 }
 function setProjObject(pid,oid){const p=DB.projects.find(x=>x.id===pid);if(oid)p.objectId=oid;else delete p.objectId;save();}
 
-function openProj(id){openProject=id;projTab='stages';meFolder=null;render();}
+function openProj(id){openProject=id;projTab='stages';meFolder=null;showClients=false;cliView=null;render();}
 function backFromProject(){const p=DB.projects.find(x=>x.id===openProject);openProject=null;openObject=(p&&p.objectId)?p.objectId:null;render();}
 
 /* ---------- ЗАВЕРШЁННЫЕ (АРХИВ) ---------- */
@@ -1930,6 +1937,94 @@ function addSupplier(){const n=prompt('Название поставщика:','
 function renameSupplier(i){const list=supList();const n=prompt('Название поставщика:',list[i]);if(n===null)return;const s=stg();s.suppliers=list.slice();if(n.trim())s.suppliers[i]=n.trim();save();renderSettings();}
 function delSupplier(i){const s=stg();s.suppliers=supList().slice();s.suppliers.splice(i,1);save();renderSettings();}
 
+/* ---------- КЛИЕНТЫ (справочник) ---------- */
+function ckey(n,p){return (n||'').trim().toLowerCase()+'|'+(p||'').trim();}
+function clientsReg(){return DB.clients||[];}
+function clientsMerged(){
+  const map={};
+  clientsReg().forEach(c=>{map[ckey(c.name,c.phone)]={id:c.id,name:c.name,phone:c.phone||'',note:c.note||'',registered:true};});
+  [...(DB.objects||[]),...(DB.projects||[])].forEach(x=>{
+    if(x.client&&x.client.trim()){const k=ckey(x.client,x.phone);if(!map[k])map[k]={id:null,name:x.client.trim(),phone:(x.phone||'').trim(),note:'',registered:false};}
+  });
+  return Object.values(map).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+}
+function clientOrders(name,phone){
+  const k=ckey(name,phone);
+  return {objs:(DB.objects||[]).filter(o=>ckey(o.client,o.phone)===k&&!o.archived),
+          projs:(DB.projects||[]).filter(p=>ckey(p.client,p.phone)===k&&!p.archived)};
+}
+function ensureClient(name,phone){
+  name=(name||'').trim();if(!name)return;
+  DB.clients=DB.clients||[];
+  const k=ckey(name,phone);
+  if(!DB.clients.some(c=>ckey(c.name,c.phone)===k))DB.clients.push({id:uid(),name,phone:(phone||'').trim(),note:'',created:todayISO()});
+}
+function fillClient(nameId,phoneId,cid){const c=clientsReg().find(x=>x.id===cid);if(c){if($(nameId))$(nameId).value=c.name;if($(phoneId))$(phoneId).value=c.phone||'';}}
+function clientPickHTML(nameId,phoneId){
+  const list=clientsReg();if(!list.length)return '';
+  return `<label class="f">Клиент из справочника</label>
+    <select onchange="fillClient('${nameId}','${phoneId}',this.value)">
+      <option value="">— выбрать / вписать вручную —</option>
+      ${list.map(c=>`<option value="${c.id}">${esc(c.name)}${c.phone?' · '+esc(c.phone):''}</option>`).join('')}
+    </select>`;
+}
+function openClients(){showClients=true;cliView=null;openProject=null;openObject=null;showArchive=false;showSettings=false;render();}
+function openClient(i){cliView=_cliMerged[i]||null;render();}
+function renderClients(){
+  $('subtitle').textContent='клиенты';
+  _cliMerged=clientsMerged();
+  let h=`<button class="back" onclick="showClients=false;render()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> Назад</button>
+    <div class="proj-name" style="font-size:23px">👥 Клиенты</div>
+    <button class="btn btn-ghost btn-sm" style="width:100%;margin:8px 0 12px" onclick="sheetClient()">+ Клиент</button>`;
+  if(!_cliMerged.length){h+=emptyState('M12 12a4 4 0 100-8 4 4 0 000 8zM4 20a8 8 0 0116 0','Пока нет клиентов.<br>Добавь клиента или создай проект с заказчиком.');$('content').innerHTML=h;return;}
+  h+=`<div class="card">`;
+  _cliMerged.forEach((c,i)=>{
+    const ord=clientOrders(c.name,c.phone);const n=ord.objs.length+ord.projs.length;
+    h+=`<div class="item" style="cursor:pointer" onclick="openClient(${i})">
+      <div style="font-size:20px;margin-right:6px">👤</div>
+      <div class="item-body"><div class="item-txt">${esc(c.name)}${c.registered?'':' <span style="color:var(--muted);font-size:11px">(не в справочнике)</span>'}</div>
+      <div class="item-sub">${[c.phone,n?n+' заказ(ов)':'нет заказов'].filter(Boolean).join(' · ')}</div></div>
+      <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--muted);fill:none;stroke-width:2"><path d="M9 6l6 6-6 6"/></svg></div>`;
+  });
+  h+=`</div>`;
+  $('content').innerHTML=h;$('content').scrollTop=0;
+}
+function renderClientDetail(){
+  const c=cliView;if(!c){showClients=false;return render();}
+  $('subtitle').textContent='клиент';
+  const ord=clientOrders(c.name,c.phone);
+  let h=`<button class="back" onclick="cliView=null;render()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> К клиентам</button>
+    <div class="proj-name" style="font-size:23px">👤 ${esc(c.name)}</div>
+    ${c.phone?`<div class="proj-desc" style="margin-bottom:2px">📞 ${esc(c.phone)}</div>`:''}
+    ${c.note?`<div class="proj-desc" style="margin-bottom:6px">${esc(c.note)}</div>`:''}`;
+  h+=c.registered
+    ? `<button class="btn btn-ghost btn-sm" style="width:100%;margin:6px 0" onclick="sheetClient('${c.id}')">✏️ Изменить клиента</button>`
+    : `<button class="btn btn-ghost btn-sm" style="width:100%;margin:6px 0" onclick="registerClient(${_cliMerged.indexOf(c)})">+ Добавить в справочник</button>`;
+  h+=`<div class="sec-title">Объекты</div>`;
+  if(ord.objs.length){h+=`<div class="proj-grid">`;ord.objs.forEach(o=>h+=objectCard(o));h+=`</div>`;}else h+=`<div class="fin-sub" style="margin-bottom:8px">нет</div>`;
+  h+=`<div class="sec-title">Проекты</div>`;
+  if(ord.projs.length){h+=`<div class="proj-grid">`;ord.projs.forEach(p=>h+=projectCard(p));h+=`</div>`;}else h+=`<div class="fin-sub">нет</div>`;
+  $('content').innerHTML=h;$('content').scrollTop=0;
+}
+function sheetClient(id){
+  const c=id?clientsReg().find(x=>x.id===id):null;
+  openSheet(`<h2>${c?'Изменить клиента':'Новый клиент'}</h2>
+    <label class="f">Имя</label><input id="cName" value="${c?esc(c.name):''}" placeholder="Имя заказчика">
+    <label class="f">Телефон</label><input id="cPhone" type="tel" value="${c?esc(c.phone||''):''}" placeholder="+359…">
+    <label class="f">Заметка</label><textarea id="cNote" placeholder="Адрес, предпочтения…">${c?esc(c.note||''):''}</textarea>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Отмена</button><button class="btn" onclick="saveClient('${id||''}')">${c?'Сохранить':'Создать'}</button></div>`);
+  setTimeout(()=>$('cName').focus(),100);
+}
+function saveClient(id){
+  const n=$('cName').value.trim();if(!n){$('cName').focus();return;}
+  const data={name:n,phone:$('cPhone').value.trim(),note:$('cNote').value.trim()};
+  DB.clients=DB.clients||[];
+  if(id){const c=DB.clients.find(x=>x.id===id);if(c){Object.assign(c,data);cliView={id:c.id,name:c.name,phone:c.phone||'',note:c.note||'',registered:true};}}
+  else DB.clients.unshift({id:uid(),...data,created:todayISO()});
+  save();closeSheet();render();
+}
+function registerClient(i){const c=_cliMerged[i];if(!c)return;const id=uid();DB.clients=DB.clients||[];DB.clients.unshift({id,name:c.name,phone:c.phone,note:'',created:todayISO()});save();cliView={id,name:c.name,phone:c.phone,note:'',registered:true};render();}
+
 /* ---------- FAB / sheets ---------- */
 function onFab(){
   if(openProject){
@@ -1953,7 +2048,7 @@ function sheetProject(objId){
   objId=objId||'';
   const objs=activeObjects();
   const inObj=objId?(objs.find(o=>o.id===objId)||null):null;
-  const clientFields=objId?`<div class="fin-sub" style="margin:2px 0 8px">Заказчик и телефон — из объекта «${inObj?esc(inObj.name):''}».</div>`:`<div class="row">
+  const clientFields=objId?`<div class="fin-sub" style="margin:2px 0 8px">Заказчик и телефон — из объекта «${inObj?esc(inObj.name):''}».</div>`:`${clientPickHTML('pClient','pPhone')}<div class="row">
       <div><label class="f">Заказчик</label><input id="pClient" placeholder="Имя"></div>
       <div><label class="f">Телефон</label><input id="pPhone" type="tel" placeholder="+359…"></div>
     </div>`;
@@ -1979,6 +2074,7 @@ function saveProject(objId){
     created:todayISO(),deadline:$('pDead').value,price:0,prepay:0,finalpay:0,desc:'',
     status:'active',units:[],stages:makeStages(),tasks:[],shop:[],mainExpenses:[],expenses:[]};
   if(oid)proj.objectId=oid;
+  ensureClient(proj.client,proj.phone);
   DB.projects.unshift(proj);
   save();closeSheet();render();
 }
