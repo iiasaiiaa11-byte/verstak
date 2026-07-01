@@ -680,7 +680,7 @@ function renderProjects(){
   $('subtitle').textContent='мастерская · управление производством';
   const objs=activeObjects();
   const loose=activeProjects().filter(p=>!p.objectId||!objs.some(o=>o.id===p.objectId));
-  let h=`<div style="margin-bottom:12px"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="sheetObject()">🏠 + Объект (квартира с несколькими проектами)</button></div>`;
+  let h=`<div style="margin-bottom:12px"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="sheetObject()">🏠 + Объект</button></div>`;
   if(!objs.length&&!loose.length){
     h+=emptyState('M3 7h18M3 12h18M3 17h18','Пока нет проектов.<br>Нажми «+», чтобы добавить проект, или «+ Объект» — квартиру с несколькими проектами.');
     $('content').innerHTML=h;return;
