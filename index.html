@@ -1124,6 +1124,8 @@ function infoView(p){
     ${p.archived&&p.archivedAt?`<div class="fin-sub" style="margin-top:4px">✅ Завершён: ${fmtDate(p.archivedAt)}</div>`:''}
   </div>
   <button class="btn act-btn" onclick="aiEstimateSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">🤖 AI-расчёт по фото</button>
+  <button class="btn act-btn" onclick="visualizeSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,#5e8aa8,#7fb0d0);color:#0d1520;font-weight:700">🖼 Визуализация (концепт)</button>
+  ${rendersSection(p)}
   ${photosSection(p)}
   <button class="btn act-btn" onclick="clientReport('${p.id}')" style="margin-bottom:10px">📄 Отчёт для клиента (PDF)</button>
   ${p.archived
@@ -2157,6 +2159,60 @@ function applyAiResult(pid){
   if(kp)p.desc=(p.desc?p.desc+'\n\n':'')+kp;
   save();closeSheet();render();
   alert('Добавлено в проект: позиции, закупки, смета и текст КП. Проверь и поправь вручную.');
+}
+
+/* ---------- AI-визуализация: концепт-рендер по описанию (Google Gemini через Cloud Function) ---------- */
+const VIS_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/aiVisualize';
+const VIS_STYLES=['Современный','Минимализм','Классический','Скандинавский','Лофт','Неоклассика'];
+let _visStyle='';
+function rendersSection(p){
+  const r=p.renders||[];if(!r.length)return '';
+  let g=`<div class="sec-title">Визуализации (концепты)</div><div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap">`;
+  r.forEach(x=>{g+=`<div style="position:relative"><img src="${x.img}" style="width:96px;height:96px;object-fit:cover;border-radius:8px" onclick="openPhoto(this.src)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="delRender('${p.id}','${x.id}')">×</button></div>`;});
+  g+=`</div><div class="fin-sub" style="margin-top:8px">Примерные концепты от AI — не точный проект. Тап — на весь экран.</div></div>`;
+  return g;
+}
+function delRender(pid,id){if(!confirm('Удалить визуализацию?'))return;const p=DB.projects.find(x=>x.id===pid);p.renders=(p.renders||[]).filter(x=>x.id!==id);save();render();}
+function visualizeSheet(pid){
+  _visStyle='';window._visImg=null;
+  const p=DB.projects.find(x=>x.id===pid);
+  const base=[(p&&p.units||[]).map(u=>u.name).join(', '),(p&&p.desc)||''].filter(Boolean).join('. ');
+  openSheet(`<h2>🖼 Визуализация (концепт)</h2>
+    <div class="fin-sub" style="margin-bottom:8px">AI нарисует примерный концепт изделия для показа клиенту. Это НЕ точный проект по размерам — вдохновение и стиль. Точный проект — в Базисе.</div>
+    <label class="f">Что визуализируем</label>
+    <textarea id="visDesc" placeholder="Напр. Кухня прямая 4 м, фасады МДФ плёнка матовая светло-серая, ручки-профиль, столешница под камень…">${esc(base)}</textarea>
+    <label class="f">Стиль (необязательно)</label>
+    <div class="chips" id="visStyleChips">${VIS_STYLES.map(s=>`<button type="button" class="chip" onclick="setVisStyle('${s}')">${s}</button>`).join('')}</div>
+    <div id="visResult"></div>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button><button class="btn" id="visRunBtn" onclick="runVisualize('${pid}')">Сгенерировать</button></div>`);
+}
+function setVisStyle(s){_visStyle=(_visStyle===s)?'':s;document.querySelectorAll('#visStyleChips .chip').forEach(c=>c.classList.toggle('on',c.textContent===_visStyle));}
+async function runVisualize(pid){
+  const de=$('visDesc');const desc=(de&&de.value||'').trim();
+  if(!desc){alert('Опиши, что визуализировать.');return;}
+  const btn=$('visRunBtn'),res=$('visResult');
+  if(btn){btn.disabled=true;btn.textContent='Рисую…';}
+  if(res)res.innerHTML=`<div class="fin-sub" style="margin-top:12px">🎨 AI рисует концепт… 10–20 секунд.</div>`;
+  try{
+    if(!cloudUid||typeof firebase==='undefined'||!firebase.auth().currentUser){alert('Сначала войдите в синхронизацию (значок облака).');if(btn){btn.disabled=false;btn.textContent='Сгенерировать';}return;}
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(VIS_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({description:desc,style:_visStyle})});
+    const data=await r.json().catch(()=>({error:'Пустой ответ'}));
+    if(!r.ok||data.error||!data.image){const em=r.status===402?'На счету Google закончились кредиты — пополните баланс.':(data.error||('HTTP '+r.status));if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Ошибка: ${esc(em)}</div>`;if(btn){btn.disabled=false;btn.textContent='Сгенерировать';}return;}
+    window._visImg=data.image;
+    if(res)res.innerHTML=`<img src="${data.image}" style="width:100%;border-radius:10px;margin-top:12px" onclick="openPhoto(this.src)">
+      <button class="btn" style="width:100%;margin-top:10px" onclick="saveRender('${pid}')">💾 Сохранить в проект</button>`;
+  }catch(e){if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Не получилось: ${esc(e.message||'')}</div>`;}
+  if(btn){btn.disabled=false;btn.textContent='Ещё вариант';}
+}
+function compressDataUrl(src,cb){
+  const img=new Image();
+  img.onload=()=>{const max=1024;let w=img.width,h=img.height;if(w>h&&w>max){h=Math.round(h*max/w);w=max;}else if(h>=w&&h>max){w=Math.round(w*max/h);h=max;}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);cb(c.toDataURL('image/jpeg',0.82));};
+  img.onerror=()=>cb(src);img.src=src;
+}
+function saveRender(pid){
+  const src=window._visImg;if(!src)return;
+  compressDataUrl(src,d=>{const p=DB.projects.find(x=>x.id===pid);if(!p)return;p.renders=p.renders||[];p.renders.push({id:uid(),img:d,created:todayISO()});save();closeSheet();render();alert('Визуализация сохранена в проект.');});
 }
 
 /* ---------- FAB / sheets ---------- */

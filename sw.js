@@ -1,6 +1,6 @@
 /* Сервис-воркер «ВЕРСТАК»: офлайн-работа.
    Стратегия: сеть в приоритете (свежая версия), при отсутствии сети — из кэша. */
-const CACHE = 'verstak-v26-ai-pricing';
+const CACHE = 'verstak-v27-visual';
 const ASSETS = ['./', './index.html', './icon.png', './icon-512.png', './manifest.webmanifest'];
 
 self.addEventListener('install', e => {
