@@ -2363,7 +2363,7 @@ function renderStockList(){
       ${[s.material,s.size].filter(Boolean).length?`<div class="item-sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${[s.material,s.size].filter(Boolean).map(esc).join(' · ')}</div>`:''}
       ${[s.supplier,s.source].filter(Boolean).length?`<div class="fin-sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${[s.supplier,s.source].filter(Boolean).map(esc).join(' · ')}</div>`:''}
     </div>
-    ${(s.qty||s.unit)?`<div style="text-align:right;flex-shrink:0"><b style="font-size:16px">${esc(s.qty||'')}</b><div class="fin-sub">${esc(s.unit||'')}</div></div>`:''}
+    ${(s.qty||s.unit||s.price)?`<div style="text-align:right;flex-shrink:0">${(s.qty||s.unit)?`<b style="font-size:16px">${esc(s.qty||'')}</b> <span class="fin-sub">${esc(s.unit||'')}</span>`:''}${s.price?`<div class="fin-sub">${esc(String(s.price))} ${curSym()}/${esc(s.unit||'ед')}</div>`:''}${(s.price&&parseFloat(s.qty)>0&&parseFloat(s.price)>0)?`<div class="fin-sub" style="color:var(--wood-2)">Σ ${money(parseFloat(s.qty)*parseFloat(s.price))}</div>`:''}</div>`:''}
   </div>`).join('');
 }
 function onStockPhoto(input){pickPhoto(input,d=>{window._stockPhoto=d;const w=$('stPhotoWrap');if(w)w.innerHTML=`<img src="${d}" style="width:100%;max-height:180px;object-fit:cover;border-radius:10px">`;const b=$('stPhotoBtn');if(b)b.textContent='📷 Заменить фото';});}
@@ -2388,6 +2388,8 @@ function sheetStockItem(id){
       <div><label class="f">Остаток</label><input id="stQty" value="${s?esc(s.qty||''):''}" placeholder="3" inputmode="decimal"></div>
       <div><label class="f">Единица</label><select id="stUnit">${STOCK_UNITS.map(u=>`<option ${s&&s.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
     </div>
+    <label class="f">Цена за единицу (${curSym()})</label>
+    <input id="stPrice" value="${s?esc(s.price||''):''}" placeholder="0" inputmode="decimal">
     <label class="f">Заметка</label>
     <textarea id="stNote" placeholder="Доп. информация">${s?esc(s.note||''):''}</textarea>
     ${micBtn('stNote')}
@@ -2396,7 +2398,7 @@ function sheetStockItem(id){
 }
 function saveStockItem(id){
   const name=($('stName').value||'').trim();if(!name){$('stName').focus();return;}
-  const data={name,material:($('stMat').value||'').trim(),size:($('stSize').value||'').trim(),supplier:$('stSup').value||'',source:($('stSrc').value||'').trim(),qty:($('stQty').value||'').trim(),unit:$('stUnit').value||'',note:($('stNote').value||'').trim(),photo:window._stockPhoto||''};
+  const data={name,material:($('stMat').value||'').trim(),size:($('stSize').value||'').trim(),supplier:$('stSup').value||'',source:($('stSrc').value||'').trim(),qty:($('stQty').value||'').trim(),unit:$('stUnit').value||'',price:($('stPrice').value||'').trim(),note:($('stNote').value||'').trim(),photo:window._stockPhoto||''};
   DB.stock=DB.stock||[];
   if(id){const s=DB.stock.find(x=>x.id===id);if(s)Object.assign(s,data);}
   else DB.stock.unshift({id:uid(),...data,created:todayISO()});
@@ -2454,7 +2456,7 @@ function addInvoiceToStock(){
   DB.stock=DB.stock||[];let n=0;
   (d.items||[]).forEach((it,i)=>{
     const cb=$('invCbx'+i);if(cb&&!cb.classList.contains('on'))return;
-    DB.stock.unshift({id:uid(),name:it.name||'Позиция',material:'',size:it.size||'',supplier:sup,source:src,qty:it.qty||'',unit:it.unit||'шт',note:it.price?('цена ~'+it.price+'/ед'):'',photo:'',created:todayISO()});
+    DB.stock.unshift({id:uid(),name:it.name||'Позиция',material:'',size:it.size||'',supplier:sup,source:src,qty:it.qty||'',unit:it.unit||'шт',price:it.price?String(it.price):'',note:'',photo:'',created:todayISO()});
     n++;
   });
   save();closeSheet();render();
