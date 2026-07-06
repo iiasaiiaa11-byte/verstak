@@ -362,13 +362,10 @@
       <svg viewBox="0 0 24 24"><path d="M3 7h18M3 12h18M3 17h18"/></svg>Проекты
     </button>
     <button data-tab="tasks" onclick="go('tasks')">
-      <svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8M4 12v7a1 1 0 001 1h14"/></svg>Задачи
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/><path d="M8 13l2.5 2.5L16 11"/></svg>Дела
     </button>
     <button data-tab="shop" onclick="go('shop')">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.5 13h11l2-9H6"/></svg>Закупки
-    </button>
-    <button data-tab="calendar" onclick="go('calendar')">
-      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>Календарь
     </button>
     <button data-tab="ai" onclick="go('ai')">
       <svg viewBox="0 0 24 24"><path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="M18 14l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>ИИ
@@ -604,7 +601,7 @@ function makeStages(){return DEFAULT_STAGES.map(n=>({name:n,date:'',done:false})
 let TAB='projects';
 let openProject=null;
 let openObject=null;
-let projTab='stages';
+let projTab='info';
 let showArchive=false; // режим просмотра «Завершённые проекты»
 let showSettings=false;
 let showClients=false, cliView=null, _cliMerged=[];
@@ -886,7 +883,7 @@ function delObject(oid){
 }
 function setProjObject(pid,oid){const p=DB.projects.find(x=>x.id===pid);if(oid)p.objectId=oid;else delete p.objectId;save();}
 
-function openProj(id){openProject=id;projTab='stages';meFolder=null;showClients=false;cliView=null;render();}
+function openProj(id){openProject=id;projTab='info';meFolder=null;showClients=false;cliView=null;render();}
 function backFromProject(){const p=DB.projects.find(x=>x.id===openProject);openProject=null;openObject=(p&&p.objectId)?p.objectId:null;render();}
 
 /* ---------- ЗАВЕРШЁННЫЕ (АРХИВ) ---------- */
@@ -956,7 +953,7 @@ function renderProjectDetail(){
     ${(p.units&&p.units.length)?`<div class="proj-desc" style="color:var(--wood-2);margin-bottom:6px">📦 ${p.units.map(u=>esc(u.name)).join(', ')}</div>`:''}
     ${ro?`<div class="ro-banner">🔒 Проект завершён — только просмотр. Чтобы редактировать, верни его в работу (вкладка «Инфо»).</div>`:''}
     <div class="tabs">
-      ${tabBtn('stages','График')}${tabBtn('money','Деньги')}${tabBtn('tasks','Задачи')}${tabBtn('shop','Закупки')}${tabBtn('measures','Замеры')}${tabBtn('info','Инфо')}
+      ${tabBtn('info','Инфо')}${tabBtn('stages','График')}${tabBtn('money','Деньги')}${tabBtn('tasks','Задачи')}${tabBtn('shop','Закупки')}${tabBtn('measures','Замеры')}
     </div><div class="${ro?'ro-lock':''}">${body}</div>`;
 }
 
@@ -1137,8 +1134,7 @@ function infoView(p){
     ${p.created?`<div class="fin-sub" style="margin-top:12px">📅 Проект создан: ${fmtDate(p.created)}</div>`:''}
     ${p.archived&&p.archivedAt?`<div class="fin-sub" style="margin-top:4px">✅ Завершён: ${fmtDate(p.archivedAt)}</div>`:''}
   </div>
-  <button class="btn act-btn" onclick="aiEstimateSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">🤖 AI-расчёт по фото</button>
-  <button class="btn act-btn" onclick="visualizeSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,#5e8aa8,#7fb0d0);color:#0d1520;font-weight:700">🖼 Визуализация (концепт)</button>
+  <button class="btn act-btn" onclick="aiMenuSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">🤖 AI-помощник</button>
   ${rendersSection(p)}
   ${photosSection(p)}
   <button class="btn act-btn" onclick="clientReport('${p.id}')" style="margin-bottom:10px">📄 Отчёт для клиента (PDF)</button>
@@ -1341,9 +1337,10 @@ function setTaskMode(m){taskMode=m;render();}
 function fmtShort(d){if(!d)return '';try{return new Date(d+'T00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});}catch(e){return d;}}
 function renderTasks(){
   const seg=(k,l)=>`<button class="${taskMode===k?'on':''}" onclick="setTaskMode('${k}')">${l}</button>`;
-  let h=`<div class="tabs">${seg('proj','По проектам')}${seg('sup','Поставщики')}${seg('my','Мои')}</div>`;
+  let h=`<div class="tabs">${seg('proj','По проектам')}${seg('sup','Поставщики')}${seg('my','Мои')}${seg('cal','📅 Календарь')}</div>`;
   if(taskMode==='proj'){$('subtitle').textContent='дела по проектам';h+=tasksByProject();}
   else if(taskMode==='sup'){$('subtitle').textContent='что купить — по поставщикам';h+=tasksBySupplier();}
+  else if(taskMode==='cal'){$('subtitle').textContent='календарь · сроки и напоминания';h+=calendarBody();}
   else{$('subtitle').textContent='мои задачи (не привязаны к проекту)';h+=tasksMy();}
   $('content').innerHTML=h;
 }
@@ -1546,8 +1543,7 @@ function calDayList(ev,iso,heading){
   });
   return h+`</div>`;
 }
-function renderCalendar(){
-  $('subtitle').textContent='календарь · сроки и напоминания';
+function calendarBody(){
   if(!calCursor)calCursor=todayISO();
   const ev=calEvents();
   const seg=(k,l)=>`<button class="${calMode===k?'on':''}" onclick="setCalMode('${k}')">${l}</button>`;
@@ -1569,8 +1565,9 @@ function renderCalendar(){
     <button class="btn btn-ghost btn-sm" onclick="calCursor=todayISO();render()">Сегодня</button>
     <button class="btn btn-sm" onclick="sheetReminder()">+ Напоминание</button>
   </div>`;
-  $('content').innerHTML=h;
+  return h;
 }
+function renderCalendar(){$('subtitle').textContent='календарь · сроки и напоминания';$('content').innerHTML=calendarBody();}
 function delRem(id){DB.reminders=DB.reminders.filter(x=>x.id!==id);save();render();}
 
 /* ---------- CALCULATOR (калькулятор кухни) ---------- */
@@ -2135,6 +2132,14 @@ function saveClient(id){
 }
 function registerClient(i){const c=_cliMerged[i];if(!c)return;const id=uid();DB.clients=DB.clients||[];DB.clients.unshift({id,name:c.name,phone:c.phone,note:'',created:todayISO()});save();cliView={id,name:c.name,phone:c.phone,note:'',registered:true};render();}
 
+/* Меню AI внутри проекта: выбор расчёт / визуализация */
+function aiMenuSheet(pid){
+  openSheet(`<h2>🤖 AI-помощник</h2>
+    <div class="fin-sub" style="margin-bottom:10px">Что сделать по этому проекту?</div>
+    <button class="btn" style="width:100%;margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700" onclick="closeSheet();aiEstimateSheet('${pid}')">🧮 Рассчитать смету по фото</button>
+    <button class="btn" style="width:100%;background:linear-gradient(90deg,#5e8aa8,#7fb0d0);color:#0d1520;font-weight:700" onclick="closeSheet();visualizeSheet('${pid}')">🖼 Визуализация (концепт)</button>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button></div>`);
+}
 /* ---------- AI-расчёт по фото (Claude Opus 4.8 через Cloud Function) ---------- */
 const AI_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/aiEstimate';
 let aiPhotos=[];
@@ -2511,7 +2516,7 @@ function onFab(){
   }
   if(openObject){sheetProject(openObject);return;}
   if(TAB==='projects')sheetProject();
-  else if(TAB==='tasks')sheetTask();
+  else if(TAB==='tasks'){if(taskMode==='cal')sheetReminder();else sheetTask();}
   else if(TAB==='shop')sheetShop();
   else if(TAB==='calendar')sheetReminder();
   else if(TAB==='stock')sheetStockItem();
