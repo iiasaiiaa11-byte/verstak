@@ -1123,6 +1123,7 @@ function infoView(p){
     ${p.created?`<div class="fin-sub" style="margin-top:12px">📅 Проект создан: ${fmtDate(p.created)}</div>`:''}
     ${p.archived&&p.archivedAt?`<div class="fin-sub" style="margin-top:4px">✅ Завершён: ${fmtDate(p.archivedAt)}</div>`:''}
   </div>
+  <button class="btn act-btn" onclick="aiEstimateSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">🤖 AI-расчёт по фото</button>
   ${photosSection(p)}
   <button class="btn act-btn" onclick="clientReport('${p.id}')" style="margin-bottom:10px">📄 Отчёт для клиента (PDF)</button>
   ${p.archived
@@ -2079,6 +2080,69 @@ function saveClient(id){
   save();closeSheet();render();
 }
 function registerClient(i){const c=_cliMerged[i];if(!c)return;const id=uid();DB.clients=DB.clients||[];DB.clients.unshift({id,name:c.name,phone:c.phone,note:'',created:todayISO()});save();cliView={id,name:c.name,phone:c.phone,note:'',registered:true};render();}
+
+/* ---------- AI-расчёт по фото (Claude Opus 4.8 через Cloud Function) ---------- */
+const AI_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/aiEstimate';
+let aiPhotos=[];
+function aiEstimateSheet(pid){
+  aiPhotos=[];window._aiData=null;
+  openSheet(`<h2>🤖 AI-расчёт по фото</h2>
+    <div class="fin-sub" style="margin-bottom:8px">Сфотографируй нишу/эскиз/референс и опиши заказ — AI даст черновик: позиции, закупки, этапы, смету и текст КП. Обязательно проверяй перед отправкой клиенту.</div>
+    <label class="f">Фото (до 3, необязательно)</label>
+    <input type="file" accept="image/*" id="aiPhoto" style="display:none" onchange="onAiPhoto(this)">
+    <button type="button" class="btn btn-ghost btn-sm" style="width:100%" onclick="$('aiPhoto').click()">📷 Добавить фото</button>
+    <div id="aiPhotoPrev" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
+    <label class="f">Описание заказа</label>
+    <textarea id="aiDesc" placeholder="Напр. Кухня угловая 3.2×1.8 м, фасады МДФ крашеный матовый, столешница кварц, встроенная техника…"></textarea>
+    <div id="aiResult"></div>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button><button class="btn" id="aiRunBtn" onclick="runAiEstimate('${pid}')">Рассчитать</button></div>`);
+  setTimeout(()=>{const e=$('aiDesc');if(e)e.focus();},100);
+}
+function onAiPhoto(input){pickPhoto(input,d=>{if(aiPhotos.length<3){aiPhotos.push(d);renderAiPhotos();}});}
+function renderAiPhotos(){const w=$('aiPhotoPrev');if(!w)return;w.innerHTML=aiPhotos.map((d,i)=>`<div style="position:relative"><img src="${d}" style="width:64px;height:64px;object-fit:cover;border-radius:8px"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="aiPhotos.splice(${i},1);renderAiPhotos()">×</button></div>`).join('');}
+async function runAiEstimate(pid){
+  const de=$('aiDesc');const desc=(de&&de.value||'').trim();
+  if(!desc&&!aiPhotos.length){alert('Добавь фото или описание заказа.');return;}
+  const btn=$('aiRunBtn'),res=$('aiResult');
+  if(btn){btn.disabled=true;btn.textContent='Считаю…';}
+  if(res)res.innerHTML=`<div class="fin-sub" style="margin-top:12px">🤖 AI думает… это может занять 10–30 секунд.</div>`;
+  try{
+    if(!cloudUid||typeof firebase==='undefined'||!firebase.auth().currentUser){alert('Сначала войдите в синхронизацию (значок облака) — AI-расчёт привязан к аккаунту.');if(btn){btn.disabled=false;btn.textContent='Рассчитать';}return;}
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(AI_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({images:aiPhotos,description:desc,currency:curSym()})});
+    const data=await r.json().catch(()=>({error:'Пустой ответ'}));
+    if(!r.ok||data.error){if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Ошибка: ${esc(data.error||('HTTP '+r.status))}</div>`;if(btn){btn.disabled=false;btn.textContent='Рассчитать';}return;}
+    window._aiData=data;renderAiResult(pid,data);
+  }catch(e){if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Не получилось связаться с AI: ${esc(e.message||'')}</div>`;}
+  if(btn){btn.disabled=false;btn.textContent='Пересчитать';}
+}
+function renderAiResult(pid,d){
+  const res=$('aiResult');if(!res)return;
+  const items=(d.items||[]).map(i=>`<div class="item"><div class="item-body"><div class="item-txt">${esc(i.name)}${i.qty?' · '+esc(i.qty):''}</div>${i.note?`<div class="item-sub">${esc(i.note)}</div>`:''}</div></div>`).join('');
+  const mats=(d.materials||[]).map(m=>`<div class="item"><div class="item-body"><div class="item-txt">${esc(m.name)}${m.qty?' · '+esc(m.qty):''}</div></div></div>`).join('');
+  const stages=(d.stages||[]).map(s=>`<span class="chip">${esc(s)}</span>`).join('');
+  const bd=((d.estimate&&d.estimate.breakdown)||[]).map(b=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0"><span>${esc(b.label)}</span><b>${money(b.amount)}</b></div>`).join('');
+  res.innerHTML=`
+    <div class="sec-title">Черновик от AI</div>
+    ${d.summary?`<div class="proj-desc" style="margin-bottom:6px">${esc(d.summary)}</div>`:''}
+    ${items?`<div class="card"><div class="fin-sub" style="margin-bottom:4px">Позиции</div>${items}</div>`:''}
+    ${mats?`<div class="card"><div class="fin-sub" style="margin-bottom:4px">Закупить</div>${mats}</div>`:''}
+    ${stages?`<div class="chips" style="margin-top:0">${stages}</div>`:''}
+    <div class="card" style="margin-top:10px"><div class="fin-sub" style="margin-bottom:4px">Смета (ориентировочно)</div>${bd}<div style="display:flex;justify-content:space-between;font-weight:800;margin-top:6px;border-top:1px solid var(--line);padding-top:6px">Итого<span>${money((d.estimate&&d.estimate.total)||0)}</span></div>${d.estimate&&d.estimate.disclaimer?`<div class="fin-sub" style="margin-top:6px">${esc(d.estimate.disclaimer)}</div>`:''}</div>
+    ${d.kpText?`<label class="f">Текст КП (можно править)</label><textarea id="aiKp" style="min-height:130px">${esc(d.kpText)}</textarea>`:''}
+    <button class="btn" style="width:100%;margin-top:10px" onclick="applyAiResult('${pid}')">➕ Применить к проекту</button>`;
+}
+function applyAiResult(pid){
+  const d=window._aiData;if(!d)return;
+  const p=DB.projects.find(x=>x.id===pid);if(!p)return;
+  p.units=p.units||[];(d.items||[]).forEach(i=>{if(i&&i.name)p.units.push({name:i.qty?`${i.name} (${i.qty})`:i.name});});
+  p.shop=p.shop||[];(d.materials||[]).forEach(m=>{if(m&&m.name)p.shop.push({id:uid(),txt:m.name,qty:m.qty||'',price:0,supplier:'',note:'из AI-расчёта',done:false});});
+  if(d.estimate&&+d.estimate.total>0&&!p.price)p.price=Math.round(+d.estimate.total);
+  const kp=($('aiKp')&&$('aiKp').value)||d.kpText||'';
+  if(kp)p.desc=(p.desc?p.desc+'\n\n':'')+kp;
+  save();closeSheet();render();
+  alert('Добавлено в проект: позиции, закупки, смета и текст КП. Проверь и поправь вручную.');
+}
 
 /* ---------- FAB / sheets ---------- */
 function onFab(){
