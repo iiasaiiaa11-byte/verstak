@@ -2101,19 +2101,22 @@ function registerClient(i){const c=_cliMerged[i];if(!c)return;const id=uid();DB.
 /* ---------- AI-расчёт по фото (Claude Opus 4.8 через Cloud Function) ---------- */
 const AI_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/aiEstimate';
 let aiPhotos=[];
-function aiEstimateSheet(pid){
-  aiPhotos=[];window._aiData=null;
+function aiEstimateSheet(pid,opts){
+  opts=opts||{};
+  aiPhotos=(opts.photos&&opts.photos.slice())||[];window._aiData=null;
+  const preDesc=opts.desc||'';
   openSheet(`<h2>🤖 AI-расчёт по фото</h2>
     <div class="fin-sub" style="margin-bottom:8px">Сфотографируй нишу/эскиз/референс и опиши заказ — AI даст черновик: позиции, закупки, этапы, смету и текст КП. Обязательно проверяй перед отправкой клиенту.</div>
+    ${opts.fromRender?`<div class="fin-sub" style="margin-bottom:8px;color:var(--wood)">🖼 Подставлен концепт-визуализация. AI посчитает смету по нему — уточни описание при необходимости.</div>`:''}
     <label class="f">Фото (до 3, необязательно)</label>
     <input type="file" accept="image/*" id="aiPhoto" style="display:none" onchange="onAiPhoto(this)">
     <button type="button" class="btn btn-ghost btn-sm" style="width:100%" onclick="$('aiPhoto').click()">📷 Добавить фото</button>
     <div id="aiPhotoPrev" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
     <label class="f">Описание заказа</label>
-    <textarea id="aiDesc" placeholder="Напр. Кухня угловая 3.2×1.8 м, фасады МДФ крашеный матовый, столешница кварц, встроенная техника…"></textarea>
+    <textarea id="aiDesc" placeholder="Напр. Кухня угловая 3.2×1.8 м, фасады МДФ крашеный матовый, столешница кварц, встроенная техника…">${esc(preDesc)}</textarea>
     <div id="aiResult"></div>
     <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button><button class="btn" id="aiRunBtn" onclick="runAiEstimate('${pid}')">Рассчитать</button></div>`);
-  setTimeout(()=>{const e=$('aiDesc');if(e)e.focus();},100);
+  setTimeout(()=>{renderAiPhotos();const e=$('aiDesc');if(e&&!preDesc)e.focus();},100);
 }
 function onAiPhoto(input){pickPhoto(input,d=>{if(aiPhotos.length<3){aiPhotos.push(d);renderAiPhotos();}});}
 function renderAiPhotos(){const w=$('aiPhotoPrev');if(!w)return;w.innerHTML=aiPhotos.map((d,i)=>`<div style="position:relative"><img src="${d}" style="width:64px;height:64px;object-fit:cover;border-radius:8px"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="aiPhotos.splice(${i},1);renderAiPhotos()">×</button></div>`).join('');}
@@ -2168,8 +2171,8 @@ let _visStyle='';
 function rendersSection(p){
   const r=p.renders||[];if(!r.length)return '';
   let g=`<div class="sec-title">Визуализации (концепты)</div><div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap">`;
-  r.forEach(x=>{g+=`<div style="position:relative"><img src="${x.img}" style="width:96px;height:96px;object-fit:cover;border-radius:8px" onclick="openPhoto(this.src)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="delRender('${p.id}','${x.id}')">×</button></div>`;});
-  g+=`</div><div class="fin-sub" style="margin-top:8px">Примерные концепты от AI — не точный проект. Тап — на весь экран.</div></div>`;
+  r.forEach(x=>{g+=`<div style="position:relative"><img src="${x.img}" style="width:96px;height:96px;object-fit:cover;border-radius:8px" onclick="openPhoto(this.src)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="delRender('${p.id}','${x.id}')">×</button><button title="Рассчитать смету по этому концепту" style="position:absolute;bottom:4px;left:4px;background:rgba(0,0,0,.6);border:none;border-radius:6px;font-size:14px;padding:2px 5px;cursor:pointer" onclick="estimateFromSaved('${p.id}','${x.id}')">🤖</button></div>`;});
+  g+=`</div><div class="fin-sub" style="margin-top:8px">Примерные концепты от AI — не точный проект. Тап — на весь экран, 🤖 — рассчитать смету по концепту.</div></div>`;
   return g;
 }
 function delRender(pid,id){if(!confirm('Удалить визуализацию?'))return;const p=DB.projects.find(x=>x.id===pid);p.renders=(p.renders||[]).filter(x=>x.id!==id);save();render();}
@@ -2201,7 +2204,8 @@ async function runVisualize(pid){
     if(!r.ok||data.error||!data.image){const em=r.status===402?'На счету Google закончились кредиты — пополните баланс.':(data.error||('HTTP '+r.status));if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Ошибка: ${esc(em)}</div>`;if(btn){btn.disabled=false;btn.textContent='Сгенерировать';}return;}
     window._visImg=data.image;
     if(res)res.innerHTML=`<img src="${data.image}" style="width:100%;border-radius:10px;margin-top:12px" onclick="openPhoto(this.src)">
-      <button class="btn" style="width:100%;margin-top:10px" onclick="saveRender('${pid}')">💾 Сохранить в проект</button>`;
+      <button class="btn" style="width:100%;margin-top:10px" onclick="saveRender('${pid}')">💾 Сохранить в проект</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="estimateFromRender('${pid}',window._visImg)">🤖 Рассчитать смету по этому концепту</button>`;
   }catch(e){if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Не получилось: ${esc(e.message||'')}</div>`;}
   if(btn){btn.disabled=false;btn.textContent='Ещё вариант';}
 }
@@ -2214,6 +2218,14 @@ function saveRender(pid){
   const src=window._visImg;if(!src)return;
   compressDataUrl(src,d=>{const p=DB.projects.find(x=>x.id===pid);if(!p)return;p.renders=p.renders||[];p.renders.push({id:uid(),img:d,created:todayISO()});save();closeSheet();render();alert('Визуализация сохранена в проект.');});
 }
+/* Связка: концепт → AI-расчёт по фото (подставляет картинку и описание в расчёт) */
+function estimateFromRender(pid,src){
+  if(!src)return;
+  const p=DB.projects.find(x=>x.id===pid);
+  const base=[(p&&p.units||[]).map(u=>u.name).join(', '),(p&&p.desc)||''].filter(Boolean).join('. ');
+  compressDataUrl(src,d=>{aiEstimateSheet(pid,{photos:[d],desc:base,fromRender:true});});
+}
+function estimateFromSaved(pid,rid){const p=DB.projects.find(x=>x.id===pid);const r=(p&&p.renders||[]).find(x=>x.id===rid);if(r)estimateFromRender(pid,r.img);}
 
 /* ---------- FAB / sheets ---------- */
 function onFab(){
