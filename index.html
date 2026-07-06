@@ -91,12 +91,12 @@
     padding:5px 7px;box-shadow:0 6px 18px rgba(0,0,0,.45);
   }
   nav button{
-    flex:0 0 auto;width:55px;background:none;border:none;color:var(--muted);
-    font-family:'Inter';font-size:9.5px;font-weight:500;
+    flex:0 0 auto;width:49px;background:none;border:none;color:var(--muted);
+    font-family:'Inter';font-size:9px;font-weight:500;
     display:flex;flex-direction:column;align-items:center;gap:3px;
-    padding:6px 2px;cursor:pointer;border-radius:13px;transition:.15s;
+    padding:6px 1px;cursor:pointer;border-radius:13px;transition:.15s;
   }
-  nav button svg{width:21px;height:21px;stroke:var(--muted);fill:none;stroke-width:1.8;transition:.15s;}
+  nav button svg{width:20px;height:20px;stroke:var(--muted);fill:none;stroke-width:1.8;transition:.15s;}
   nav button.active{color:var(--wood-2);background:var(--panel-2);}
   nav button.active svg{stroke:var(--wood-2);}
 
@@ -383,6 +383,9 @@
     <button data-tab="ai" onclick="go('ai')">
       <svg viewBox="0 0 24 24"><path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="M18 14l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>ИИ
     </button>
+    <button data-tab="stock" onclick="go('stock')">
+      <svg viewBox="0 0 24 24"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/></svg>Склад
+    </button>
   </nav>
 </div>
 
@@ -616,6 +619,7 @@ let showArchive=false; // режим просмотра «Завершённые
 let showSettings=false;
 let showClients=false, cliView=null, _cliMerged=[];
 let projQuery='';
+let stockQuery='';
 // активные проекты — всё, что не отправлено в «Завершённые»
 function activeProjects(){return DB.projects.filter(p=>!p.archived);}
 function archivedProjects(){return DB.projects.filter(p=>p.archived);}
@@ -679,7 +683,7 @@ function fin(p){
   return {income,spent,mainSpent,extraSpent,extraClient,price,prepay:+p.prepay||0,finalpay:+p.finalpay||0,remain:price-income,profit:price-spent,balance:income-spent};
 }
 
-function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;showSettings=false;showClients=false;cliView=null;projQuery='';document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
+function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;showSettings=false;showClients=false;cliView=null;projQuery='';stockQuery='';document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
 
 /* ---------- render router ---------- */
 function render(){
@@ -697,6 +701,7 @@ function render(){
   else if(TAB==='calc')renderCalc();
   else if(TAB==='calendar')renderCalendar();
   else if(TAB==='ai')renderAiTab();
+  else if(TAB==='stock')renderStock();
   $('content').scrollTop=0;
 }
 
@@ -2329,6 +2334,68 @@ function addMeasureToVis(pid){
 }
 function clearVisNiche(pid){window._visNiche=null;const de=$('visDesc');visualizeSheet(pid,{desc:(de&&de.value)||'',keepState:true});}
 
+/* ---------- СКЛАД: учёт остатков материалов и фурнитуры ---------- */
+const STOCK_UNITS=['шт','лист','м','м²','пог.м','компл','кг'];
+function renderStock(){
+  $('subtitle').textContent='склад · остатки материалов';
+  DB.stock=DB.stock||[];
+  $('content').innerHTML=`<input id="stockSearch" class="proj-search" value="${esc(stockQuery||'')}" oninput="stockQuery=this.value;renderStockList()" placeholder="🔍 Поиск: материал, поставщик, размер"><div id="stockList"></div>`;
+  renderStockList();
+}
+function renderStockList(){
+  const wrap=$('stockList');if(!wrap)return;
+  const q=(stockQuery||'').trim().toLowerCase();
+  let list=(DB.stock||[]);
+  if(q)list=list.filter(s=>[s.name,s.material,s.size,s.supplier,s.source,s.note].filter(Boolean).join(' ').toLowerCase().includes(q));
+  if(!(DB.stock||[]).length){wrap.innerHTML=`<div class="card" style="text-align:center;color:var(--muted)">📦 Склад пуст.<br>Нажми «+» внизу, чтобы добавить материал или фурнитуру — с фото, размерами, остатком и поставщиком.</div>`;return;}
+  if(!list.length){wrap.innerHTML=`<div class="fin-sub" style="text-align:center;padding:20px">Ничего не найдено.</div>`;return;}
+  wrap.innerHTML=list.map(s=>`<div class="card" onclick="sheetStockItem('${s.id}')" style="cursor:pointer;display:flex;gap:12px;align-items:center">
+    ${s.photo?`<img src="${s.photo}" style="width:60px;height:60px;object-fit:cover;border-radius:8px;flex-shrink:0">`:`<div style="width:60px;height:60px;border-radius:8px;background:var(--panel-2);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0">📦</div>`}
+    <div style="flex:1;min-width:0">
+      <div class="item-txt" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.name)}</div>
+      ${[s.material,s.size].filter(Boolean).length?`<div class="item-sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${[s.material,s.size].filter(Boolean).map(esc).join(' · ')}</div>`:''}
+      ${[s.supplier,s.source].filter(Boolean).length?`<div class="fin-sub" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${[s.supplier,s.source].filter(Boolean).map(esc).join(' · ')}</div>`:''}
+    </div>
+    ${(s.qty||s.unit)?`<div style="text-align:right;flex-shrink:0"><b style="font-size:16px">${esc(s.qty||'')}</b><div class="fin-sub">${esc(s.unit||'')}</div></div>`:''}
+  </div>`).join('');
+}
+function onStockPhoto(input){pickPhoto(input,d=>{window._stockPhoto=d;const w=$('stPhotoWrap');if(w)w.innerHTML=`<img src="${d}" style="width:100%;max-height:180px;object-fit:cover;border-radius:10px">`;const b=$('stPhotoBtn');if(b)b.textContent='📷 Заменить фото';});}
+function sheetStockItem(id){
+  const s=id?(DB.stock||[]).find(x=>x.id===id):null;
+  window._stockPhoto=s?(s.photo||''):'';
+  openSheet(`<h2>${s?'Позиция склада':'Новая позиция'}</h2>
+    <div id="stPhotoWrap">${window._stockPhoto?`<img src="${window._stockPhoto}" style="width:100%;max-height:180px;object-fit:cover;border-radius:10px">`:''}</div>
+    <input type="file" accept="image/*" id="stPhotoInp" style="display:none" onchange="onStockPhoto(this)">
+    <button type="button" id="stPhotoBtn" class="btn btn-ghost btn-sm" style="width:100%;margin-top:6px" onclick="$('stPhotoInp').click()">📷 ${window._stockPhoto?'Заменить фото':'Добавить фото'}</button>
+    <label class="f">Название / что это</label>
+    <input id="stName" value="${s?esc(s.name):''}" placeholder="Напр. ЛДСП Egger дуб сонома">
+    <div class="row">
+      <div><label class="f">Материал / цвет</label><input id="stMat" value="${s?esc(s.material||''):''}" placeholder="ЛДСП, МДФ, петли…"></div>
+      <div><label class="f">Размер</label><input id="stSize" value="${s?esc(s.size||''):''}" placeholder="2800×2070×18"></div>
+    </div>
+    <label class="f">Поставщик</label>
+    <select id="stSup"><option value="">— не указан —</option>${supList().map(x=>`<option ${s&&s.supplier===x?'selected':''}>${esc(x)}</option>`).join('')}</select>
+    <label class="f">Откуда получен</label>
+    <input id="stSrc" value="${s?esc(s.source||''):''}" placeholder="Напр. остаток с проекта «Кухня Иванов»">
+    <div class="row">
+      <div><label class="f">Остаток</label><input id="stQty" value="${s?esc(s.qty||''):''}" placeholder="3" inputmode="decimal"></div>
+      <div><label class="f">Единица</label><select id="stUnit">${STOCK_UNITS.map(u=>`<option ${s&&s.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
+    </div>
+    <label class="f">Заметка</label>
+    <textarea id="stNote" placeholder="Доп. информация">${s?esc(s.note||''):''}</textarea>
+    <div class="sheet-actions">${s?`<button class="btn btn-ghost" style="color:var(--red)" onclick="delStockItem('${s.id}')">Удалить</button>`:`<button class="btn btn-ghost" onclick="closeSheet()">Отмена</button>`}<button class="btn" onclick="saveStockItem('${s?s.id:''}')">Сохранить</button></div>`);
+  setTimeout(()=>{const e=$('stName');if(e&&!s)e.focus();},100);
+}
+function saveStockItem(id){
+  const name=($('stName').value||'').trim();if(!name){$('stName').focus();return;}
+  const data={name,material:($('stMat').value||'').trim(),size:($('stSize').value||'').trim(),supplier:$('stSup').value||'',source:($('stSrc').value||'').trim(),qty:($('stQty').value||'').trim(),unit:$('stUnit').value||'',note:($('stNote').value||'').trim(),photo:window._stockPhoto||''};
+  DB.stock=DB.stock||[];
+  if(id){const s=DB.stock.find(x=>x.id===id);if(s)Object.assign(s,data);}
+  else DB.stock.unshift({id:uid(),...data,created:todayISO()});
+  save();closeSheet();render();
+}
+function delStockItem(id){if(!confirm('Удалить позицию со склада?'))return;DB.stock=(DB.stock||[]).filter(x=>x.id!==id);save();closeSheet();render();}
+
 /* ---------- FAB / sheets ---------- */
 function onFab(){
   if(openProject){
@@ -2344,6 +2411,7 @@ function onFab(){
   else if(TAB==='tasks')sheetTask();
   else if(TAB==='shop')sheetShop();
   else if(TAB==='calendar')sheetReminder();
+  else if(TAB==='stock')sheetStockItem();
 }
 function openSheet(html){$('sheet').innerHTML=html;$('overlay').classList.add('show');}
 function closeSheet(){$('overlay').classList.remove('show');}
