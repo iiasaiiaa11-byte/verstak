@@ -2474,8 +2474,8 @@ async function startVoice(targetId){
     _recChunks=[];_recTargetId=targetId;
     _rec=new MediaRecorder(stream);
     _rec.ondataavailable=e=>{if(e.data&&e.data.size)_recChunks.push(e.data);};
-    _rec.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const ov=$('voiceOv');if(ov)ov.remove();const blob=new Blob(_recChunks,{type:(_rec&&_rec.mimeType)||'audio/mp4'});transcribeBlob(blob);};
-    _rec.start();
+    _rec.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const ov=$('voiceOv');if(ov)ov.remove();const mt=(((_rec&&_rec.mimeType)||'audio/mp4').split(';')[0]).trim();const blob=new Blob(_recChunks,{type:mt});if(!blob.size){alert('Запись получилась пустая. Говорите чуть дольше (2–3 секунды) и держите телефон ближе.');return;}transcribeBlob(blob);};
+    _rec.start(500);
     const d=document.createElement('div');d.id='voiceOv';d.className='photo-view';
     d.innerHTML=`<div style="text-align:center;color:#fff"><div style="font-size:56px">🔴</div><div style="margin:14px 0;font-size:16px">Идёт запись… говорите</div><button class="btn" style="min-width:200px" onclick="stopVoice()">⏹ Стоп и распознать</button><div style="margin-top:10px"><button class="btn btn-ghost" onclick="cancelVoice()" style="color:#fff">Отмена</button></div></div>`;
     document.body.appendChild(d);
