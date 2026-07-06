@@ -2218,8 +2218,8 @@ let _visStyle='';
 function rendersSection(p){
   const r=p.renders||[];if(!r.length)return '';
   let g=`<div class="sec-title">Визуализации (концепты)</div><div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap">`;
-  r.forEach(x=>{g+=`<div style="position:relative"><img src="${x.img}" style="width:96px;height:96px;object-fit:cover;border-radius:8px${x.inKp?';outline:3px solid var(--wood);outline-offset:1px':''}" onclick="openPhoto(this.src)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="delRender('${p.id}','${x.id}')">×</button><button title="Рассчитать смету по этому концепту" style="position:absolute;bottom:4px;left:4px;background:rgba(0,0,0,.6);border:none;border-radius:6px;font-size:14px;padding:2px 5px;cursor:pointer" onclick="estimateFromSaved('${p.id}','${x.id}')">🤖</button><button title="Показать в КП клиенту" style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.6);border:none;border-radius:6px;font-size:14px;padding:2px 5px;cursor:pointer" onclick="toggleRenderKp('${p.id}','${x.id}')">${x.inKp?'⭐':'☆'}</button></div>`;});
-  g+=`</div><div class="fin-sub" style="margin-top:8px">Примерные концепты от AI — не точный проект. Тап — на весь экран, 🤖 — рассчитать смету, ⭐ — показать в КП клиенту.</div></div>`;
+  r.forEach(x=>{g+=`<div style="position:relative"><img src="${x.img}" style="width:96px;height:96px;object-fit:cover;border-radius:8px${x.inKp?';outline:3px solid var(--wood);outline-offset:1px':''}" onclick="openPhoto(this.src)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="delRender('${p.id}','${x.id}')">×</button><button title="Изменить словами" style="position:absolute;top:-6px;left:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px;font-size:11px" onclick="editRenderSheet('${p.id}','${x.id}')">✏️</button><button title="Рассчитать смету по этому концепту" style="position:absolute;bottom:4px;left:4px;background:rgba(0,0,0,.6);border:none;border-radius:6px;font-size:14px;padding:2px 5px;cursor:pointer" onclick="estimateFromSaved('${p.id}','${x.id}')">🤖</button><button title="Показать в КП клиенту" style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.6);border:none;border-radius:6px;font-size:14px;padding:2px 5px;cursor:pointer" onclick="toggleRenderKp('${p.id}','${x.id}')">${x.inKp?'⭐':'☆'}</button></div>`;});
+  g+=`</div><div class="fin-sub" style="margin-top:8px">Примерные концепты от AI — не точный проект. Тап — на весь экран, ✏️ — изменить словами, 🤖 — рассчитать смету, ⭐ — показать в КП клиенту.</div></div>`;
   return g;
 }
 function delRender(pid,id){if(!confirm('Удалить визуализацию?'))return;const p=DB.projects.find(x=>x.id===pid);p.renders=(p.renders||[]).filter(x=>x.id!==id);save();render();}
@@ -2259,6 +2259,7 @@ async function runVisualize(pid){
     window._visImg=data.image;
     if(res)res.innerHTML=`<img src="${data.image}" style="width:100%;border-radius:10px;margin-top:12px" onclick="openPhoto(this.src)">
       <button class="btn" style="width:100%;margin-top:10px" onclick="saveRender('${pid}')">💾 Сохранить в проект</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="editRenderSheet('${pid}','',window._visImg)">✏️ Изменить словами</button>
       <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="estimateFromRender('${pid}',window._visImg)">🤖 Рассчитать смету по этому концепту</button>`;
   }catch(e){if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Не получилось: ${esc(e.message||'')}</div>`;}
   if(btn){btn.disabled=false;btn.textContent='Ещё вариант';}
@@ -2281,6 +2282,46 @@ function estimateFromRender(pid,src){
   compressDataUrl(src,d=>{aiEstimateSheet(pid,{photos:[d],desc:base,fromRender:true});});
 }
 function estimateFromSaved(pid,rid){const p=DB.projects.find(x=>x.id===pid);const r=(p&&p.renders||[]).find(x=>x.id===rid);if(r)estimateFromRender(pid,r.img);}
+
+/* Редактирование визуализации словами: «фасады темнее», «добавь остров» и т.п. (image-to-image через Gemini) */
+const EDIT_CHIPS=['Сделай фасады темнее','Сделай фасады светлее','Добавь остров','Смени цвет фурнитуры на золото','Другой стиль ручек','Добавь подсветку'];
+function editRenderSheet(pid,rid,srcOverride){
+  const p=DB.projects.find(x=>x.id===pid);
+  const r=rid?(p&&p.renders||[]).find(x=>x.id===rid):null;
+  const src=srcOverride||(r&&r.img);
+  if(!src){alert('Нет изображения для редактирования.');return;}
+  window._editSrc=src;window._editPid=pid;window._editRid=rid||'';
+  openSheet(`<h2>✏️ Изменить концепт словами</h2>
+    <div class="fin-sub" style="margin-bottom:8px">Опиши, что изменить в картинке — AI перерисует, сохранив остальное.</div>
+    <img id="editSrcImg" src="${src}" style="width:100%;border-radius:10px;margin-bottom:10px">
+    <label class="f">Что изменить</label>
+    <textarea id="editDesc" placeholder="Напр. Сделай фасады тёмно-серыми, добавь остров"></textarea>
+    ${micBtn('editDesc')}
+    <div class="chips" id="editChips" style="margin-top:8px">${EDIT_CHIPS.map((c,i)=>`<button type="button" class="chip" onclick="pickEditChip(${i})">${c}</button>`).join('')}</div>
+    <div id="editResult"></div>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button><button class="btn" id="editRunBtn" onclick="runEditVisualize()">Сгенерировать правку</button></div>`);
+}
+function pickEditChip(i){const c=EDIT_CHIPS[i];const de=$('editDesc');if(de){de.value=de.value?de.value+', '+c.toLowerCase():c;}}
+async function runEditVisualize(){
+  const de=$('editDesc');const instr=(de&&de.value||'').trim();
+  if(!instr){alert('Опиши, что изменить.');return;}
+  const btn=$('editRunBtn'),res=$('editResult');
+  if(btn){btn.disabled=true;btn.textContent='Рисую…';}
+  if(res)res.innerHTML=`<div class="fin-sub" style="margin-top:12px">🎨 AI вносит правку… 10–20 секунд.</div>`;
+  try{
+    if(!cloudUid||typeof firebase==='undefined'||!firebase.auth().currentUser){alert('Сначала войдите в синхронизацию (значок облака).');if(btn){btn.disabled=false;btn.textContent='Сгенерировать правку';}return;}
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(VIS_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({description:instr,style:'',images:[window._editSrc],mode:'edit'})});
+    const data=await r.json().catch(()=>({error:'Пустой ответ'}));
+    if(!r.ok||data.error||!data.image){const em=r.status===402?'На счету Google закончились кредиты — пополните баланс.':(data.error||('HTTP '+r.status));if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Ошибка: ${esc(em)}</div>`;if(btn){btn.disabled=false;btn.textContent='Сгенерировать правку';}return;}
+    window._editSrc=data.image;window._visImg=data.image;
+    const si=$('editSrcImg');if(si)si.src=data.image;
+    if(de)de.value='';
+    if(res)res.innerHTML=`<div class="fin-sub" style="margin-top:8px">Готово — правка применена выше. Можно внести ещё одну правку или сохранить.</div>
+      <button class="btn" style="width:100%;margin-top:8px" onclick="saveRender('${window._editPid}')">💾 Сохранить как новый вариант</button>`;
+  }catch(e){if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Не получилось: ${esc(e.message||'')}</div>`;}
+  if(btn){btn.disabled=false;btn.textContent='Сгенерировать правку';}
+}
 
 /* ---------- Вкладка «ИИ»: AI без привязки к проекту, с выбором проекта потом ---------- */
 function renderAiTab(){
