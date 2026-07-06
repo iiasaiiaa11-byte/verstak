@@ -1029,6 +1029,8 @@ function clientReport(id){
     extras.forEach(x=>{exp+=`<div class="rep-exp"><div class="rep-exp-top"><span>${esc(x.title)}${x.date?` <span style="color:#999;font-weight:400">(${fmtFull(x.date)})</span>`:''}</span><b>${money(x.amount)}</b></div>${x.photo?`<img src="${x.photo}" class="rep-photo">`:''}</div>`;});
   } else exp='<div style="color:#999;font-size:13px;padding:6px 0">нет</div>';
   const units=(p.units||[]).map(u=>esc(u.name)).join(', ');
+  const kpRenders=(p.renders||[]).filter(x=>x.inKp);
+  const visBlock=kpRenders.length?`<div class="rep-sec">Визуализация (концепт)</div>${kpRenders.map(x=>`<img src="${x.img}" class="rep-photo" style="max-height:360px">`).join('')}<div style="color:#999;font-size:12px;margin-top:4px">Предварительный концепт для наглядности. Итоговый вид уточняется в проекте.</div>`:'';
   const w=ws();const wsContacts=[w.phone,w.address,w.site].filter(Boolean).join(' · ');
   document.getElementById('report').innerHTML=`
     ${w.logo?`<div style="text-align:center"><img src="${w.logo}" style="max-height:64px;margin-bottom:6px"></div>`:''}
@@ -1040,6 +1042,7 @@ function clientReport(id){
     ${p.client?`<div class="rep-row"><span>Заказчик</span><b>${esc(p.client)}</b></div>`:''}
     ${p.phone?`<div class="rep-row"><span>Телефон</span><b>${esc(p.phone)}</b></div>`:''}
     ${units?`<div class="rep-row"><span>Мебель в заказе</span><b>${units}</b></div>`:''}
+    ${visBlock}
     <div class="rep-sec">Финансы</div>
     <div class="rep-row"><span>Общая стоимость</span><b>${money(f.price)}</b></div>
     <div class="rep-row"><span>Предоплата</span><b>${money(f.prepay)}</b></div>
@@ -2171,11 +2174,12 @@ let _visStyle='';
 function rendersSection(p){
   const r=p.renders||[];if(!r.length)return '';
   let g=`<div class="sec-title">Визуализации (концепты)</div><div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap">`;
-  r.forEach(x=>{g+=`<div style="position:relative"><img src="${x.img}" style="width:96px;height:96px;object-fit:cover;border-radius:8px" onclick="openPhoto(this.src)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="delRender('${p.id}','${x.id}')">×</button><button title="Рассчитать смету по этому концепту" style="position:absolute;bottom:4px;left:4px;background:rgba(0,0,0,.6);border:none;border-radius:6px;font-size:14px;padding:2px 5px;cursor:pointer" onclick="estimateFromSaved('${p.id}','${x.id}')">🤖</button></div>`;});
-  g+=`</div><div class="fin-sub" style="margin-top:8px">Примерные концепты от AI — не точный проект. Тап — на весь экран, 🤖 — рассчитать смету по концепту.</div></div>`;
+  r.forEach(x=>{g+=`<div style="position:relative"><img src="${x.img}" style="width:96px;height:96px;object-fit:cover;border-radius:8px${x.inKp?';outline:3px solid var(--wood);outline-offset:1px':''}" onclick="openPhoto(this.src)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="delRender('${p.id}','${x.id}')">×</button><button title="Рассчитать смету по этому концепту" style="position:absolute;bottom:4px;left:4px;background:rgba(0,0,0,.6);border:none;border-radius:6px;font-size:14px;padding:2px 5px;cursor:pointer" onclick="estimateFromSaved('${p.id}','${x.id}')">🤖</button><button title="Показать в КП клиенту" style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,.6);border:none;border-radius:6px;font-size:14px;padding:2px 5px;cursor:pointer" onclick="toggleRenderKp('${p.id}','${x.id}')">${x.inKp?'⭐':'☆'}</button></div>`;});
+  g+=`</div><div class="fin-sub" style="margin-top:8px">Примерные концепты от AI — не точный проект. Тап — на весь экран, 🤖 — рассчитать смету, ⭐ — показать в КП клиенту.</div></div>`;
   return g;
 }
 function delRender(pid,id){if(!confirm('Удалить визуализацию?'))return;const p=DB.projects.find(x=>x.id===pid);p.renders=(p.renders||[]).filter(x=>x.id!==id);save();render();}
+function toggleRenderKp(pid,id){const p=DB.projects.find(x=>x.id===pid);const r=(p&&p.renders||[]).find(x=>x.id===id);if(r){r.inKp=!r.inKp;save();render();}}
 function visualizeSheet(pid){
   _visStyle='';window._visImg=null;
   const p=DB.projects.find(x=>x.id===pid);
