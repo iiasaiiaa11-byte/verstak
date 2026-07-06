@@ -1996,6 +1996,12 @@ function renderSettings(){
       <div class="fin-sub" style="margin-top:8px">Одно уведомление в день о сроках на сегодня и завтра. Новое время применится после синхронизации.</div>
     </div>
 
+    <div class="sec-title">Календарь телефона</div>
+    <div class="card">
+      <button class="btn btn-ghost btn-sm" style="width:100%" onclick="syncCalendar()">📅 Синхронизировать с календарём iPhone</button>
+      <div class="fin-sub" style="margin-top:8px">Подпишись один раз — дедлайны проектов, даты этапов (замер, монтаж…) и напоминания появятся в родном Календаре телефона и будут обновляться автоматически.</div>
+    </div>
+
     <div class="sec-title">Резервная копия</div>
     <div class="card">
       <button class="btn btn-ghost btn-sm" style="width:100%" onclick="exportData()">⬇️ Сохранить копию в файл</button>
@@ -2013,6 +2019,23 @@ function setCurrency(c){stg().currency=c;save();renderSettings();}
 function setNotifyHour(h){stg().notifyHour=+h;save();}
 function setAiPricing(v){stg().aiPricing=(v||'').trim();save();}
 function resetAiPricing(){if(!confirm('Вернуть пример цен по умолчанию? Ваш текст будет заменён.'))return;stg().aiPricing='';save();renderSettings();}
+const CAL_LINK_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/calendarLink';
+async function syncCalendar(){
+  if(!cloudUid||typeof firebase==='undefined'||!firebase.auth().currentUser){alert('Сначала войдите в синхронизацию (значок облака) — календарь привязан к аккаунту.');return;}
+  try{
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(CAL_LINK_ENDPOINT,{method:'POST',headers:{'Authorization':'Bearer '+token}});
+    const d=await r.json().catch(()=>({error:'Пустой ответ'}));
+    if(!r.ok||!d.webcal){alert('Не удалось получить ссылку: '+(d.error||('HTTP '+r.status)));return;}
+    openSheet(`<h2>📅 Календарь телефона</h2>
+      <div class="fin-sub" style="margin-bottom:10px">Подпишись один раз — сроки проектов, этапов и напоминания появятся в стандартном Календаре iPhone и будут обновляться сами (iOS перечитывает раз в несколько часов).</div>
+      <a class="btn" style="width:100%;display:block;text-align:center;text-decoration:none;box-sizing:border-box;margin-bottom:12px" href="${d.webcal}">📲 Открыть в Календаре iPhone</a>
+      <div class="fin-sub" style="margin-bottom:4px">Если не открылось автоматически — скопируй ссылку и добавь вручную: Настройки iPhone → Календарь → Учётные записи → Добавить учётную запись → Другое → «Календарь с подпиской»:</div>
+      <input readonly value="${esc(d.https)}" onclick="this.select()" style="width:100%;font-size:12px">
+      <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="if(navigator.clipboard)navigator.clipboard.writeText('${d.https}');this.textContent='Скопировано ✓'">Скопировать ссылку</button>
+      <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button></div>`);
+  }catch(e){alert('Ошибка: '+(e.message||''));}
+}
 function addSupplier(){const n=prompt('Название поставщика:','');if(n&&n.trim()){const s=stg();s.suppliers=supList().slice();s.suppliers.push(n.trim());save();renderSettings();}}
 function renameSupplier(i){const list=supList();const n=prompt('Название поставщика:',list[i]);if(n===null)return;const s=stg();s.suppliers=list.slice();if(n.trim())s.suppliers[i]=n.trim();save();renderSettings();}
 function delSupplier(i){const s=stg();s.suppliers=supList().slice();s.suppliers.splice(i,1);save();renderSettings();}
