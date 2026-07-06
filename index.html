@@ -2140,7 +2140,8 @@ function aiEstimateSheet(pid,opts){
     ${opts.fromRender?`<div class="fin-sub" style="margin-bottom:8px;color:var(--wood)">🖼 Подставлен концепт-визуализация. AI посчитает смету по нему — уточни описание при необходимости.</div>`:''}
     <label class="f">Фото (до 3, необязательно)</label>
     <input type="file" accept="image/*" id="aiPhoto" style="display:none" onchange="onAiPhoto(this)">
-    <button type="button" class="btn btn-ghost btn-sm" style="width:100%" onclick="$('aiPhoto').click()">📷 Добавить фото</button>
+    <button type="button" class="btn btn-ghost btn-sm" style="width:100%" onclick="$('aiPhoto').click()">📷 Сделать снимок / выбрать файл</button>
+    ${(pid&&projHasMeasures(pid))?`<button type="button" class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="addMeasureToAi('${pid}')">📐 Взять из замеров (фото ниши + размеры)</button>`:''}
     <div id="aiPhotoPrev" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
     <label class="f">Описание заказа</label>
     <textarea id="aiDesc" placeholder="Напр. Кухня угловая 3.2×1.8 м, фасады МДФ крашеный матовый, столешница кварц, встроенная техника…">${esc(preDesc)}</textarea>
@@ -2210,16 +2211,21 @@ function rendersSection(p){
 }
 function delRender(pid,id){if(!confirm('Удалить визуализацию?'))return;const p=DB.projects.find(x=>x.id===pid);p.renders=(p.renders||[]).filter(x=>x.id!==id);save();render();}
 function toggleRenderKp(pid,id){const p=DB.projects.find(x=>x.id===pid);const r=(p&&p.renders||[]).find(x=>x.id===id);if(r){r.inKp=!r.inKp;save();render();}}
-function visualizeSheet(pid){
-  _visStyle='';window._visImg=null;
+function visualizeSheet(pid,opts){
+  opts=opts||{};
+  if(!opts.keepState){_visStyle='';window._visImg=null;window._visNiche=null;}
   const p=DB.projects.find(x=>x.id===pid);
   const base=[(p&&p.units||[]).map(u=>u.name).join(', '),(p&&p.desc)||''].filter(Boolean).join('. ');
+  const preDesc=(opts.desc!=null)?opts.desc:base;
+  const niche=window._visNiche;
   openSheet(`<h2>🖼 Визуализация (концепт)</h2>
     <div class="fin-sub" style="margin-bottom:8px">AI нарисует примерный концепт изделия для показа клиенту. Это НЕ точный проект по размерам — вдохновение и стиль. Точный проект — в Базисе.</div>
     <label class="f">Что визуализируем</label>
-    <textarea id="visDesc" placeholder="Напр. Кухня прямая 4 м, фасады МДФ плёнка матовая светло-серая, ручки-профиль, столешница под камень…">${esc(base)}</textarea>
+    <textarea id="visDesc" placeholder="Напр. Кухня прямая 4 м, фасады МДФ плёнка матовая светло-серая, ручки-профиль, столешница под камень…">${esc(preDesc)}</textarea>
+    ${(pid&&projHasMeasures(pid))?`<button type="button" class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="addMeasureToVis('${pid}')">📐 Вписать в нишу из замеров</button>`:''}
+    ${niche?`<div style="margin-top:8px;position:relative;display:inline-block"><img src="${niche}" style="max-height:96px;border-radius:8px;border:2px solid var(--wood)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="clearVisNiche('${pid}')">×</button><div class="fin-sub" style="margin-top:2px">Ниша выбрана — концепт впишется в неё</div></div>`:''}
     <label class="f">Стиль (необязательно)</label>
-    <div class="chips" id="visStyleChips">${VIS_STYLES.map(s=>`<button type="button" class="chip" onclick="setVisStyle('${s}')">${s}</button>`).join('')}</div>
+    <div class="chips" id="visStyleChips">${VIS_STYLES.map(s=>`<button type="button" class="chip ${_visStyle===s?'on':''}" onclick="setVisStyle('${s}')">${s}</button>`).join('')}</div>
     <div id="visResult"></div>
     <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button><button class="btn" id="visRunBtn" onclick="runVisualize('${pid}')">Сгенерировать</button></div>`);
 }
@@ -2233,7 +2239,7 @@ async function runVisualize(pid){
   try{
     if(!cloudUid||typeof firebase==='undefined'||!firebase.auth().currentUser){alert('Сначала войдите в синхронизацию (значок облака).');if(btn){btn.disabled=false;btn.textContent='Сгенерировать';}return;}
     const token=await firebase.auth().currentUser.getIdToken();
-    const r=await fetch(VIS_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({description:desc,style:_visStyle})});
+    const r=await fetch(VIS_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({description:desc,style:_visStyle,images:window._visNiche?[window._visNiche]:[]})});
     const data=await r.json().catch(()=>({error:'Пустой ответ'}));
     if(!r.ok||data.error||!data.image){const em=r.status===402?'На счету Google закончились кредиты — пополните баланс.':(data.error||('HTTP '+r.status));if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Ошибка: ${esc(em)}</div>`;if(btn){btn.disabled=false;btn.textContent='Сгенерировать';}return;}
     window._visImg=data.image;
@@ -2290,6 +2296,38 @@ function __pickProjNew(){
   DB.projects.unshift(proj);save();
   __pickProj(proj.id);
 }
+
+/* ---------- Выбор замера (фото ниши с размерами) для расчёта / визуализации ---------- */
+function measureSizes(m){return (m.ann||[]).map(a=>a.label).filter(Boolean).join(', ');}
+function projHasMeasures(pid){const p=DB.projects.find(x=>x.id===pid);return !!(p&&(p.measures||[]).length);}
+function pickMeasureThen(pid,cb){
+  const p=DB.projects.find(x=>x.id===pid);const ms=(p&&p.measures)||[];
+  if(!ms.length){alert('В этом проекте нет сохранённых замеров. Сделай замер во вкладке «Замеры».');return;}
+  window.__pickMeasureCb=cb;window.__pickMeasurePid=pid;
+  openSheet(`<h2>📐 Выбрать замер</h2>
+    <div class="fin-sub" style="margin-bottom:8px">Фото ниши с размерами пойдёт в AI, а сами размеры добавятся в описание.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+    ${ms.map(m=>`<div style="text-align:center"><img src="${m.preview||m.photo}" style="width:100px;height:100px;object-fit:cover;border-radius:8px;cursor:pointer" onclick="__pickMeasure('${m.id}')"><div class="fin-sub" style="font-size:11px">📏 ${(m.ann||[]).length}${measureSizes(m)?' · '+esc(measureSizes(m).slice(0,18)):''}</div></div>`).join('')}</div>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Отмена</button></div>`);
+}
+function __pickMeasure(mid){const cb=window.__pickMeasureCb,pid=window.__pickMeasurePid;window.__pickMeasureCb=null;const p=DB.projects.find(x=>x.id===pid);const m=(p&&p.measures||[]).find(x=>x.id===mid);if(cb&&m)cb(m);}
+function addMeasureToAi(pid){
+  const de=$('aiDesc');const curDesc=(de&&de.value)||'';
+  pickMeasureThen(pid,m=>{
+    const sizes=measureSizes(m);const photos=aiPhotos.slice();const img=m.preview||m.photo;if(img)photos.push(img);
+    const desc=curDesc+(sizes?((curDesc?'\n':'')+'Размеры из замера (мм): '+sizes):'');
+    aiEstimateSheet(pid,{photos:photos.slice(0,3),desc});
+  });
+}
+function addMeasureToVis(pid){
+  const de=$('visDesc');const curDesc=(de&&de.value)||'';
+  pickMeasureThen(pid,m=>{
+    window._visNiche=m.preview||m.photo;const sizes=measureSizes(m);
+    const desc=curDesc+(sizes?((curDesc?'\n':'')+'Размеры ниши (мм): '+sizes):'');
+    visualizeSheet(pid,{desc,keepState:true});
+  });
+}
+function clearVisNiche(pid){window._visNiche=null;const de=$('visDesc');visualizeSheet(pid,{desc:(de&&de.value)||'',keepState:true});}
 
 /* ---------- FAB / sheets ---------- */
 function onFab(){
