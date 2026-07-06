@@ -1132,6 +1132,7 @@ function infoView(p){
     </select>
     <label class="f">Описание / нюансы</label>
     <textarea id="iDesc" onblur="setDesc('${p.id}',this.value)" placeholder="Размеры, материалы, цвета, особые пожелания клиента…">${esc(p.desc||'')}</textarea>
+    ${micBtn('iDesc')}
     <label class="f">Дедлайн проекта</label>
     <input type="date" id="iDead" value="${p.deadline||''}" onchange="setDead('${p.id}',this.value)">
     ${p.created?`<div class="fin-sub" style="margin-top:12px">📅 Проект создан: ${fmtDate(p.created)}</div>`:''}
@@ -2152,6 +2153,7 @@ function aiEstimateSheet(pid,opts){
     <div id="aiPhotoPrev" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
     <label class="f">Описание заказа</label>
     <textarea id="aiDesc" placeholder="Напр. Кухня угловая 3.2×1.8 м, фасады МДФ крашеный матовый, столешница кварц, встроенная техника…">${esc(preDesc)}</textarea>
+    ${micBtn('aiDesc')}
     <div id="aiResult"></div>
     <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button><button class="btn" id="aiRunBtn" onclick="runAiEstimate('${pid}')">Рассчитать</button></div>`);
   setTimeout(()=>{renderAiPhotos();const e=$('aiDesc');if(e&&!preDesc)e.focus();},100);
@@ -2229,6 +2231,7 @@ function visualizeSheet(pid,opts){
     <div class="fin-sub" style="margin-bottom:8px">AI нарисует примерный концепт изделия для показа клиенту. Это НЕ точный проект по размерам — вдохновение и стиль. Точный проект — в Базисе.</div>
     <label class="f">Что визуализируем</label>
     <textarea id="visDesc" placeholder="Напр. Кухня прямая 4 м, фасады МДФ плёнка матовая светло-серая, ручки-профиль, столешница под камень…">${esc(preDesc)}</textarea>
+    ${micBtn('visDesc')}
     ${(pid&&projHasMeasures(pid))?`<button type="button" class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="addMeasureToVis('${pid}')">📐 Вписать в нишу из замеров</button>`:''}
     ${niche?`<div style="margin-top:8px;position:relative;display:inline-block"><img src="${niche}" style="max-height:96px;border-radius:8px;border:2px solid var(--wood)"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="clearVisNiche('${pid}')">×</button><div class="fin-sub" style="margin-top:2px">Ниша выбрана — концепт впишется в неё</div></div>`:''}
     <label class="f">Стиль (необязательно)</label>
@@ -2387,6 +2390,7 @@ function sheetStockItem(id){
     </div>
     <label class="f">Заметка</label>
     <textarea id="stNote" placeholder="Доп. информация">${s?esc(s.note||''):''}</textarea>
+    ${micBtn('stNote')}
     <div class="sheet-actions">${s?`<button class="btn btn-ghost" style="color:var(--red)" onclick="delStockItem('${s.id}')">Удалить</button>`:`<button class="btn btn-ghost" onclick="closeSheet()">Отмена</button>`}<button class="btn" onclick="saveStockItem('${s?s.id:''}')">Сохранить</button></div>`);
   setTimeout(()=>{const e=$('stName');if(e&&!s)e.focus();},100);
 }
@@ -2457,6 +2461,43 @@ function addInvoiceToStock(){
   alert('Добавлено на склад: '+n+' поз. Проверь и дополни (фото, размеры).');
 }
 
+/* ---------- Голосовой ввод (Gemini audio) → текст в поле ---------- */
+const TRANSCRIBE_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/aiTranscribe';
+let _rec=null,_recChunks=[],_recTargetId=null;
+function micBtn(inputId){return `<button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px;width:100%" onclick="startVoice('${inputId}')">🎤 Надиктовать голосом</button>`;}
+function blobToDataUrl(blob){return new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(blob);});}
+async function startVoice(targetId){
+  if(_rec&&_rec.state==='recording'){stopVoice();return;}
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){alert('Микрофон недоступен в этом браузере.');return;}
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    _recChunks=[];_recTargetId=targetId;
+    _rec=new MediaRecorder(stream);
+    _rec.ondataavailable=e=>{if(e.data&&e.data.size)_recChunks.push(e.data);};
+    _rec.onstop=()=>{stream.getTracks().forEach(t=>t.stop());const ov=$('voiceOv');if(ov)ov.remove();const blob=new Blob(_recChunks,{type:(_rec&&_rec.mimeType)||'audio/mp4'});transcribeBlob(blob);};
+    _rec.start();
+    const d=document.createElement('div');d.id='voiceOv';d.className='photo-view';
+    d.innerHTML=`<div style="text-align:center;color:#fff"><div style="font-size:56px">🔴</div><div style="margin:14px 0;font-size:16px">Идёт запись… говорите</div><button class="btn" style="min-width:200px" onclick="stopVoice()">⏹ Стоп и распознать</button><div style="margin-top:10px"><button class="btn btn-ghost" onclick="cancelVoice()" style="color:#fff">Отмена</button></div></div>`;
+    document.body.appendChild(d);
+  }catch(e){alert('Нет доступа к микрофону. Разреши доступ к микрофону в настройках телефона для этого сайта.');}
+}
+function stopVoice(){if(_rec&&_rec.state==='recording')_rec.stop();}
+function cancelVoice(){_recChunks=[];if(_rec&&_rec.state==='recording'){_rec.onstop=()=>{try{_rec.stream&&_rec.stream.getTracks().forEach(t=>t.stop());}catch(e){}};_rec.stop();}const ov=$('voiceOv');if(ov)ov.remove();_rec=null;}
+async function transcribeBlob(blob){
+  const target=$(_recTargetId);
+  const ov=document.createElement('div');ov.id='voiceProc';ov.className='photo-view';ov.innerHTML=`<div style="color:#fff;text-align:center">🔍 Распознаю речь…</div>`;document.body.appendChild(ov);
+  try{
+    if(!cloudUid||typeof firebase==='undefined'||!firebase.auth().currentUser){ov.remove();alert('Сначала войдите в синхронизацию (значок облака).');return;}
+    const b64=await blobToDataUrl(blob);
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(TRANSCRIBE_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({audio:b64})});
+    const data=await r.json().catch(()=>({error:'Пустой ответ'}));
+    ov.remove();
+    if(!r.ok||data.error||!data.text){alert('Не удалось распознать: '+(data.error||('HTTP '+r.status)));return;}
+    if(target){const cur=target.value||'';const sep=(cur&&!cur.endsWith(' ')&&!cur.endsWith('\n'))?' ':'';target.value=cur+sep+data.text;target.dispatchEvent(new Event('input'));target.dispatchEvent(new Event('change'));target.focus();}
+  }catch(e){const o=$('voiceProc');if(o)o.remove();alert('Ошибка распознавания: '+(e.message||''));}
+}
+
 /* ---------- FAB / sheets ---------- */
 function onFab(){
   if(openProject){
@@ -2516,6 +2557,7 @@ function sheetTask(){
   openSheet(`<h2>Новая задача</h2>
     <label class="f">Что нужно сделать</label>
     <input id="tTxt" placeholder="Напр. Позвонить поставщику ЛДСП">
+    ${micBtn('tTxt')}
     <label class="f">Заметка (необязательно)</label>
     <input id="tNote" placeholder="детали…">
     <div class="sheet-actions">
