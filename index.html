@@ -757,7 +757,7 @@ function filterProjects(){
   }
   const loose=activeProjects().filter(p=>!p.objectId||!objs.some(o=>o.id===p.objectId));
   h=dashboardBlock();
-  h+=`<div style="margin-bottom:12px"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="sheetObject()">🏠 + Объект</button></div>`;
+  h+=`<div style="margin-bottom:12px"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="sheetObject()">🏠 + Объект</button>${(!objs.length)?`<div class="fin-sub" style="margin-top:4px;text-align:center">Объект — адрес с несколькими проектами (кухня, шкаф…). Одно изделие — просто «+» внизу.</div>`:''}</div>`;
   if(!objs.length&&!loose.length){
     h+=emptyState('M3 7h18M3 12h18M3 17h18','Пока нет проектов.<br>Нажми «+», чтобы добавить проект, или «+ Объект» — квартиру с несколькими проектами.');
     box.innerHTML=h;return;
@@ -855,6 +855,7 @@ function renderObjectDetail(){
 function sheetObject(oid){
   const o=oid?(DB.objects||[]).find(x=>x.id===oid):null;
   openSheet(`<h2>${o?'Изменить объект':'Новый объект'}</h2>
+    ${o?'':`<div class="fin-sub" style="margin-bottom:10px">Объект — это адрес заказчика (квартира или дом). Внутри объекта — несколько проектов: кухня, шкаф в прихожей, тумбы… Удобно, когда на одном адресе несколько изделий. Для одного изделия объект не нужен — просто создай проект.</div>`}
     <label class="f">Название</label>
     <input id="oName" value="${o?esc(o.name):''}" placeholder="Напр. Квартира на ул. Иванова 5">
     ${clientPickHTML('oClient','oPhone')}
