@@ -658,7 +658,7 @@ const $=id=>document.getElementById(id);
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function fmtDate(d){if(!d)return '';const dt=new Date(d+'T00:00');return dt.toLocaleDateString('ru-RU',{day:'numeric',month:'short'});}
 function daysLeft(d){if(!d)return null;const t=new Date();t.setHours(0,0,0,0);const dt=new Date(d+'T00:00');return Math.round((dt-t)/86400000);}
-function money(n){n=Number(n)||0;return n.toLocaleString('ru-RU',{maximumFractionDigits:2})+' '+curSym();}
+function money(n,lang){n=Number(n)||0;const loc=lang==='en'?'en-GB':lang==='bg'?'bg-BG':'ru-RU';return n.toLocaleString(loc,{maximumFractionDigits:2})+' '+curSym();}
 function todayISO(){return new Date().toISOString().slice(0,10);}
 function fin(p){
   const income=(+p.prepay||0)+(+p.finalpay||0);
@@ -1026,41 +1026,82 @@ function addUnit(id){const p=DB.projects.find(x=>x.id===id);const n=$('unitName'
 function addUnitQuick(id,name){const p=DB.projects.find(x=>x.id===id);p.units=p.units||[];p.units.push({id:uid(),name:name,note:''});save();render();}
 function delUnit(pid,uId){const p=DB.projects.find(x=>x.id===pid);p.units=(p.units||[]).filter(x=>x.id!==uId);save();render();}
 function fmtFull(d){if(!d)return'';const[y,m,da]=d.split('-');return da+'.'+m+'.'+y;}
-function clientReport(id){
+/* ---------- Авто-КП «под ключ»: язык документа + перевод (Claude Haiku) ---------- */
+const REPORT_I18N={
+  ru:{sub:'Отчёт по заказу',order:'Заказ',name:'Название',client:'Заказчик',phone:'Телефон',furniture:'Мебель в заказе',vis:'Визуализация (концепт)',visNote:'Предварительный концепт для наглядности. Итоговый вид уточняется в проекте.',desc:'Описание проекта',finance:'Финансы',price:'Общая стоимость',prepay:'Предоплата',finalpay:'Доплата',extra:'Дополнительные расходы',none:'нет',extraTotal:'Итого дополнительных расходов',totalPay:'Итого к оплате',paid:'Оплачено (предоплата + доплата)',left:'Осталось доплатить',thanks:'Спасибо за заказ!'},
+  bg:{sub:'Отчет за поръчката',order:'Поръчка',name:'Наименование',client:'Клиент',phone:'Телефон',furniture:'Мебели в поръчката',vis:'Визуализация (концепция)',visNote:'Предварителна концепция за онагледяване. Крайният вид се уточнява в проекта.',desc:'Описание на проекта',finance:'Финанси',price:'Обща стойност',prepay:'Аванс',finalpay:'Доплащане',extra:'Допълнителни разходи',none:'няма',extraTotal:'Общо допълнителни разходи',totalPay:'Общо за плащане',paid:'Платено (аванс + доплащане)',left:'Остатък за доплащане',thanks:'Благодарим за поръчката!'},
+  en:{sub:'Order report',order:'Order',name:'Name',client:'Client',phone:'Phone',furniture:'Furniture in the order',vis:'Visualization (concept)',visNote:'Preliminary concept for illustration purposes. Final look to be confirmed in the project.',desc:'Project description',finance:'Finance',price:'Total price',prepay:'Deposit',finalpay:'Final payment',extra:'Additional expenses',none:'none',extraTotal:'Total additional expenses',totalPay:'Total to pay',paid:'Paid (deposit + final payment)',left:'Balance due',thanks:'Thank you for your order!'}
+};
+const KP_LANGS=[{code:'ru',label:'🇷🇺 Русский'},{code:'bg',label:'🇧🇬 Български'},{code:'en',label:'🇬🇧 English'}];
+function reportLangSheet(pid){
+  openSheet(`<h2>📄 Отчёт / КП для клиента</h2>
+    <div class="fin-sub" style="margin-bottom:10px">Выбери язык документа. Для перевода на болгарский/английский нужен вход в синхронизацию (переводит AI).</div>
+    <div class="chips">${KP_LANGS.map(l=>`<button type="button" class="chip" onclick="closeSheet();clientReport('${pid}','${l.code}')">${l.label}</button>`).join('')}</div>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Отмена</button></div>`);
+}
+const TRANSLATE_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/aiTranslate';
+async function translateTexts(texts,lang){
+  const clean=texts.map(x=>(x||'').toString());
+  if(!clean.some(x=>x.trim()))return clean;
+  if(!cloudUid||typeof firebase==='undefined'||!firebase.auth().currentUser){alert('Нужен вход в синхронизацию (значок облака) для перевода текста — тексты останутся на русском.');return clean;}
+  try{
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(TRANSLATE_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({texts:clean,target:lang})});
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok||!Array.isArray(data.translations)||data.translations.length!==clean.length){alert('Не получилось перевести текст — оставлю на русском. '+(data.error||''));return clean;}
+    return data.translations;
+  }catch(e){alert('Не получилось перевести текст — оставлю на русском.');return clean;}
+}
+async function clientReport(id,lang){
+  lang=(lang&&REPORT_I18N[lang])?lang:'ru';
+  const t=REPORT_I18N[lang];
   const p=DB.projects.find(x=>x.id===id);const f=fin(p);
   const extras=(p.expenses||[]).filter(x=>x.clientPay);
   const totalToPay=f.price+f.extraClient;
   const left=totalToPay-f.income;
+  let unitsArr=(p.units||[]).map(u=>u.name);
+  let expTitles=extras.map(x=>x.title);
+  let kpText=p.kpText||'';
+  if(lang!=='ru'&&(unitsArr.length||expTitles.length||kpText)){
+    document.getElementById('report').innerHTML=`<div style="padding:60px 20px;text-align:center;color:#666">Переводим…</div>`;
+    const merged=await translateTexts([...unitsArr,kpText,...expTitles],lang);
+    let i=0;
+    unitsArr=unitsArr.map(()=>merged[i++]);
+    kpText=merged[i++];
+    expTitles=expTitles.map(()=>merged[i++]);
+  }
   let exp='';
   if(extras.length){
-    extras.forEach(x=>{exp+=`<div class="rep-exp"><div class="rep-exp-top"><span>${esc(x.title)}${x.date?` <span style="color:#999;font-weight:400">(${fmtFull(x.date)})</span>`:''}</span><b>${money(x.amount)}</b></div>${x.photo?`<img src="${x.photo}" class="rep-photo">`:''}</div>`;});
-  } else exp='<div style="color:#999;font-size:13px;padding:6px 0">нет</div>';
-  const units=(p.units||[]).map(u=>esc(u.name)).join(', ');
+    extras.forEach((x,idx)=>{exp+=`<div class="rep-exp"><div class="rep-exp-top"><span>${esc(expTitles[idx])}${x.date?` <span style="color:#999;font-weight:400">(${fmtFull(x.date)})</span>`:''}</span><b>${money(x.amount,lang)}</b></div>${x.photo?`<img src="${x.photo}" class="rep-photo">`:''}</div>`;});
+  } else exp=`<div style="color:#999;font-size:13px;padding:6px 0">${t.none}</div>`;
+  const units=unitsArr.map(u=>esc(u)).join(', ');
   const kpRenders=(p.renders||[]).filter(x=>x.inKp);
-  const visBlock=kpRenders.length?`<div class="rep-sec">Визуализация (концепт)</div>${kpRenders.map(x=>`<img src="${x.img}" class="rep-photo" style="max-height:360px">`).join('')}<div style="color:#999;font-size:12px;margin-top:4px">Предварительный концепт для наглядности. Итоговый вид уточняется в проекте.</div>`:'';
+  const visBlock=kpRenders.length?`<div class="rep-sec">${t.vis}</div>${kpRenders.map(x=>`<img src="${x.img}" class="rep-photo" style="max-height:360px">`).join('')}<div style="color:#999;font-size:12px;margin-top:4px">${t.visNote}</div>`:'';
+  const descBlock=kpText?`<div class="rep-sec">${t.desc}</div><div class="proj-desc" style="white-space:pre-wrap">${esc(kpText)}</div>`:'';
   const w=ws();const wsContacts=[w.phone,w.address,w.site].filter(Boolean).join(' · ');
   document.getElementById('report').innerHTML=`
     ${w.logo?`<div style="text-align:center"><img src="${w.logo}" style="max-height:64px;margin-bottom:6px"></div>`:''}
     <div class="rep-h1">${esc(wsName())}</div>
     ${wsContacts?`<div class="rep-sub">${esc(wsContacts)}</div>`:''}
-    <div class="rep-sub">Отчёт по заказу · ${fmtFull(todayISO())}</div>
-    <div class="rep-sec">Заказ</div>
-    <div class="rep-row"><span>Название</span><b>${esc(p.name)}</b></div>
-    ${p.client?`<div class="rep-row"><span>Заказчик</span><b>${esc(p.client)}</b></div>`:''}
-    ${p.phone?`<div class="rep-row"><span>Телефон</span><b>${esc(p.phone)}</b></div>`:''}
-    ${units?`<div class="rep-row"><span>Мебель в заказе</span><b>${units}</b></div>`:''}
+    <div class="rep-sub">${t.sub} · ${fmtFull(todayISO())}</div>
+    <div class="rep-sec">${t.order}</div>
+    <div class="rep-row"><span>${t.name}</span><b>${esc(p.name)}</b></div>
+    ${p.client?`<div class="rep-row"><span>${t.client}</span><b>${esc(p.client)}</b></div>`:''}
+    ${p.phone?`<div class="rep-row"><span>${t.phone}</span><b>${esc(p.phone)}</b></div>`:''}
+    ${units?`<div class="rep-row"><span>${t.furniture}</span><b>${units}</b></div>`:''}
     ${visBlock}
-    <div class="rep-sec">Финансы</div>
-    <div class="rep-row"><span>Общая стоимость</span><b>${money(f.price)}</b></div>
-    <div class="rep-row"><span>Предоплата</span><b>${money(f.prepay)}</b></div>
-    <div class="rep-row"><span>Доплата</span><b>${money(f.finalpay)}</b></div>
-    <div class="rep-sec">Дополнительные расходы</div>
+    ${descBlock}
+    <div class="rep-sec">${t.finance}</div>
+    <div class="rep-row"><span>${t.price}</span><b>${money(f.price,lang)}</b></div>
+    <div class="rep-row"><span>${t.prepay}</span><b>${money(f.prepay,lang)}</b></div>
+    <div class="rep-row"><span>${t.finalpay}</span><b>${money(f.finalpay,lang)}</b></div>
+    <div class="rep-sec">${t.extra}</div>
     ${exp}
-    <div class="rep-row"><span>Итого дополнительных расходов</span><b>${money(f.extraClient)}</b></div>
-    <div class="rep-total"><span>Итого к оплате</span><span>${money(totalToPay)}</span></div>
-    <div class="rep-row"><span>Оплачено (предоплата + доплата)</span><b>${money(f.income)}</b></div>
-    <div class="rep-total"><span>Осталось доплатить</span><span>${money(left)}</span></div>
-    <div class="rep-foot">${esc(wsName())} · Спасибо за заказ!</div>`;
+    <div class="rep-row"><span>${t.extraTotal}</span><b>${money(f.extraClient,lang)}</b></div>
+    <div class="rep-total"><span>${t.totalPay}</span><span>${money(totalToPay,lang)}</span></div>
+    <div class="rep-row"><span>${t.paid}</span><b>${money(f.income,lang)}</b></div>
+    <div class="rep-total"><span>${t.left}</span><span>${money(left,lang)}</span></div>
+    <div class="rep-foot">${esc(wsName())} · ${t.thanks}</div>`;
   setTimeout(()=>window.print(),150);
 }
 
@@ -1129,6 +1170,9 @@ function infoView(p){
     <label class="f">Описание / нюансы</label>
     <textarea id="iDesc" onblur="setDesc('${p.id}',this.value)" placeholder="Размеры, материалы, цвета, особые пожелания клиента…">${esc(p.desc||'')}</textarea>
     ${micBtn('iDesc')}
+    <label class="f">Текст КП для клиента <span style="font-weight:400;color:#999">(попадёт в PDF-отчёт)</span></label>
+    <textarea id="iKp" onblur="setKpText('${p.id}',this.value)" placeholder="Профессиональное описание для клиента — заполнится само после AI-расчёта, или напиши сам">${esc(p.kpText||'')}</textarea>
+    ${micBtn('iKp')}
     <label class="f">Дедлайн проекта</label>
     <input type="date" id="iDead" value="${p.deadline||''}" onchange="setDead('${p.id}',this.value)">
     ${p.created?`<div class="fin-sub" style="margin-top:12px">📅 Проект создан: ${fmtDate(p.created)}</div>`:''}
@@ -1137,7 +1181,7 @@ function infoView(p){
   <button class="btn act-btn" onclick="aiMenuSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">🤖 AI-помощник</button>
   ${rendersSection(p)}
   ${photosSection(p)}
-  <button class="btn act-btn" onclick="clientReport('${p.id}')" style="margin-bottom:10px">📄 Отчёт для клиента (PDF)</button>
+  <button class="btn act-btn" onclick="reportLangSheet('${p.id}')" style="margin-bottom:10px">📄 Отчёт / КП для клиента (PDF)</button>
   ${p.archived
     ? `<button class="btn act-btn" onclick="unarchiveProject('${p.id}')" style="margin-bottom:10px">↩️ Вернуть в работу</button>`
     : `<button class="btn act-btn" onclick="archiveProject('${p.id}')" style="margin-bottom:10px;background:var(--green);color:#fff">✅ Завершить проект (в архив)</button>`}
@@ -1154,6 +1198,7 @@ function toggleSub(id,key,i){const p=DB.projects.find(x=>x.id===id);p[key][i].do
 function delSub(id,key,i){const p=DB.projects.find(x=>x.id===id);p[key].splice(i,1);save();render();}
 function setStatus(id,v){DB.projects.find(x=>x.id===id).status=v;save();}
 function setDesc(id,v){DB.projects.find(x=>x.id===id).desc=v;save();}
+function setKpText(id,v){DB.projects.find(x=>x.id===id).kpText=v;save();}
 function setField(id,f,v){DB.projects.find(x=>x.id===id)[f]=v.trim();save();}
 function setName(id,v){v=v.trim();if(!v){render();return;}DB.projects.find(x=>x.id===id).name=v;save();render();}
 function setDead(id,v){DB.projects.find(x=>x.id===id).deadline=v;save();}
@@ -2204,7 +2249,7 @@ function applyAiResult(pid){
     p.units=p.units||[];(d.items||[]).forEach(i=>{if(i&&i.name)p.units.push({name:i.qty?`${i.name} (${i.qty})`:i.name});});
     p.shop=p.shop||[];(d.materials||[]).forEach(m=>{if(m&&m.name)p.shop.push({id:uid(),txt:m.name,qty:m.qty||'',price:0,supplier:'',note:'из AI-расчёта',done:false});});
     if(d.estimate&&+d.estimate.total>0&&!p.price)p.price=Math.round(+d.estimate.total);
-    if(kp)p.desc=(p.desc?p.desc+'\n\n':'')+kp;
+    if(kp)p.kpText=kp;
     save();closeSheet();openProject=p.id;TAB='projects';showSettings=showClients=showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();
     alert('Добавлено в проект «'+p.name+'»: позиции, закупки, смета и текст КП. Проверь и поправь вручную.');
   };
