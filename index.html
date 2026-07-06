@@ -2341,7 +2341,9 @@ const STOCK_UNITS=['шт','лист','м','м²','пог.м','компл','кг'
 function renderStock(){
   $('subtitle').textContent='склад · остатки материалов';
   DB.stock=DB.stock||[];
-  $('content').innerHTML=`<input id="stockSearch" class="proj-search" value="${esc(stockQuery||'')}" oninput="stockQuery=this.value;renderStockList()" placeholder="🔍 Поиск: материал, поставщик, размер"><div id="stockList"></div>`;
+  $('content').innerHTML=`<input id="stockSearch" class="proj-search" value="${esc(stockQuery||'')}" oninput="stockQuery=this.value;renderStockList()" placeholder="🔍 Поиск: материал, поставщик, размер">
+    <button class="btn act-btn" onclick="scanInvoiceSheet()" style="margin-bottom:12px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">📷 Сканировать накладную (AI)</button>
+    <div id="stockList"></div>`;
   renderStockList();
 }
 function renderStockList(){
@@ -2397,6 +2399,63 @@ function saveStockItem(id){
   save();closeSheet();render();
 }
 function delStockItem(id){if(!confirm('Удалить позицию со склада?'))return;DB.stock=(DB.stock||[]).filter(x=>x.id!==id);save();closeSheet();render();}
+
+/* ---------- Сканирование накладной (Claude vision) → позиции на склад ---------- */
+const INVOICE_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/aiScanInvoice';
+let invoicePhotos=[];
+function scanInvoiceSheet(){
+  invoicePhotos=[];window._invData=null;
+  openSheet(`<h2>📷 Сканировать накладную</h2>
+    <div class="fin-sub" style="margin-bottom:8px">Сфотографируй накладную, счёт или чек от поставщика — AI распознает позиции и добавит их на склад. Проверь перед сохранением.</div>
+    <input type="file" accept="image/*" id="invPhoto" style="display:none" onchange="onInvoicePhoto(this)">
+    <button type="button" class="btn btn-ghost btn-sm" style="width:100%" onclick="$('invPhoto').click()">📷 Сфотографировать / выбрать (до 3)</button>
+    <div id="invPhotoPrev" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
+    <div id="invResult"></div>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button><button class="btn" id="invRunBtn" onclick="runScanInvoice()">Распознать</button></div>`);
+}
+function onInvoicePhoto(input){pickPhoto(input,d=>{if(invoicePhotos.length<3){invoicePhotos.push(d);renderInvoicePhotos();}});}
+function renderInvoicePhotos(){const w=$('invPhotoPrev');if(!w)return;w.innerHTML=invoicePhotos.map((d,i)=>`<div style="position:relative"><img src="${d}" style="width:64px;height:64px;object-fit:cover;border-radius:8px"><button class="del" style="position:absolute;top:-6px;right:-6px;background:var(--panel-2);border:1px solid var(--line);border-radius:50%;width:22px;height:22px" onclick="invoicePhotos.splice(${i},1);renderInvoicePhotos()">×</button></div>`).join('');}
+async function runScanInvoice(){
+  if(!invoicePhotos.length){alert('Добавь фото накладной.');return;}
+  const btn=$('invRunBtn'),res=$('invResult');
+  if(btn){btn.disabled=true;btn.textContent='Читаю…';}
+  if(res)res.innerHTML=`<div class="fin-sub" style="margin-top:12px">🔍 AI читает накладную… 10–20 секунд.</div>`;
+  try{
+    if(!cloudUid||typeof firebase==='undefined'||!firebase.auth().currentUser){alert('Сначала войдите в синхронизацию (значок облака).');if(btn){btn.disabled=false;btn.textContent='Распознать';}return;}
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(INVOICE_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({images:invoicePhotos})});
+    const data=await r.json().catch(()=>({error:'Пустой ответ'}));
+    if(!r.ok||data.error||!data.items){if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Ошибка: ${esc(data.error||('HTTP '+r.status))}</div>`;if(btn){btn.disabled=false;btn.textContent='Распознать';}return;}
+    window._invData=data;renderInvoiceResult(data);
+  }catch(e){if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Не получилось: ${esc(e.message||'')}</div>`;}
+  if(btn){btn.disabled=false;btn.textContent='Заново';}
+}
+function renderInvoiceResult(d){
+  const res=$('invResult');if(!res)return;
+  const items=d.items||[];
+  if(!items.length){res.innerHTML=`<div class="fin-sub" style="margin-top:12px">Позиции не распознаны. Попробуй фото чётче.</div>`;return;}
+  res.innerHTML=`
+    <label class="f">Поставщик</label><input id="invSup" value="${esc(d.supplier||'')}" placeholder="Напр. Salex">
+    <div class="sec-title">Распознано: ${items.length} поз. (сними галочку с ненужных)</div>
+    ${items.map((it,i)=>`<div class="card" style="padding:10px;margin-bottom:8px"><div style="display:flex;align-items:center;gap:10px">
+      <div class="cbx on" id="invCbx${i}" onclick="this.classList.toggle('on')"><svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg></div>
+      <div style="flex:1;min-width:0"><b>${esc(it.name||'')}</b><div class="fin-sub">${esc(it.qty||'')} ${esc(it.unit||'')}${it.price?' · ~'+esc(String(it.price))+'/ед':''}${it.size?' · '+esc(it.size):''}</div></div>
+    </div></div>`).join('')}
+    <button class="btn" style="width:100%;margin-top:6px" onclick="addInvoiceToStock()">➕ Добавить отмеченные на склад</button>`;
+}
+function addInvoiceToStock(){
+  const d=window._invData;if(!d)return;
+  const sup=($('invSup')&&$('invSup').value.trim())||'';
+  const src='накладная '+fmtDate(todayISO());
+  DB.stock=DB.stock||[];let n=0;
+  (d.items||[]).forEach((it,i)=>{
+    const cb=$('invCbx'+i);if(cb&&!cb.classList.contains('on'))return;
+    DB.stock.unshift({id:uid(),name:it.name||'Позиция',material:'',size:it.size||'',supplier:sup,source:src,qty:it.qty||'',unit:it.unit||'шт',note:it.price?('цена ~'+it.price+'/ед'):'',photo:'',created:todayISO()});
+    n++;
+  });
+  save();closeSheet();render();
+  alert('Добавлено на склад: '+n+' поз. Проверь и дополни (фото, размеры).');
+}
 
 /* ---------- FAB / sheets ---------- */
 function onFab(){
