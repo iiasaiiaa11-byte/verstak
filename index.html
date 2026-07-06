@@ -380,6 +380,9 @@
     <button data-tab="calendar" onclick="go('calendar')">
       <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>Календарь
     </button>
+    <button data-tab="ai" onclick="go('ai')">
+      <svg viewBox="0 0 24 24"><path d="M12 3l1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7z"/><path d="M18 14l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>ИИ
+    </button>
   </nav>
 </div>
 
@@ -685,7 +688,7 @@ function render(){
   const archMode=showArchive&&!openProject;
   const openArchived=openProject&&(DB.projects.find(x=>x.id===openProject)||{}).archived;
   const hideFab=archMode||openArchived;
-  $('fab').style.display = hideFab? 'none' : ((openProject||openObject)?'flex':((TAB==='calendar'||TAB==='calc')?'none':'flex'));
+  $('fab').style.display = hideFab? 'none' : ((openProject||openObject)?'flex':((TAB==='calendar'||TAB==='calc'||TAB==='ai')?'none':'flex'));
   if(openProject){renderProjectDetail();return;}
   if(openObject){renderObjectDetail();return;}
   if(TAB==='projects')renderProjects();
@@ -693,6 +696,7 @@ function render(){
   else if(TAB==='shop')renderShop();
   else if(TAB==='calc')renderCalc();
   else if(TAB==='calendar')renderCalendar();
+  else if(TAB==='ai')renderAiTab();
   $('content').scrollTop=0;
 }
 
@@ -2157,14 +2161,17 @@ function renderAiResult(pid,d){
 }
 function applyAiResult(pid){
   const d=window._aiData;if(!d)return;
-  const p=DB.projects.find(x=>x.id===pid);if(!p)return;
-  p.units=p.units||[];(d.items||[]).forEach(i=>{if(i&&i.name)p.units.push({name:i.qty?`${i.name} (${i.qty})`:i.name});});
-  p.shop=p.shop||[];(d.materials||[]).forEach(m=>{if(m&&m.name)p.shop.push({id:uid(),txt:m.name,qty:m.qty||'',price:0,supplier:'',note:'из AI-расчёта',done:false});});
-  if(d.estimate&&+d.estimate.total>0&&!p.price)p.price=Math.round(+d.estimate.total);
-  const kp=($('aiKp')&&$('aiKp').value)||d.kpText||'';
-  if(kp)p.desc=(p.desc?p.desc+'\n\n':'')+kp;
-  save();closeSheet();render();
-  alert('Добавлено в проект: позиции, закупки, смета и текст КП. Проверь и поправь вручную.');
+  const kp=($('aiKp')&&$('aiKp').value)||d.kpText||''; // читаем ДО возможной смены sheet
+  const apply=(tp)=>{
+    const p=DB.projects.find(x=>x.id===tp);if(!p)return;
+    p.units=p.units||[];(d.items||[]).forEach(i=>{if(i&&i.name)p.units.push({name:i.qty?`${i.name} (${i.qty})`:i.name});});
+    p.shop=p.shop||[];(d.materials||[]).forEach(m=>{if(m&&m.name)p.shop.push({id:uid(),txt:m.name,qty:m.qty||'',price:0,supplier:'',note:'из AI-расчёта',done:false});});
+    if(d.estimate&&+d.estimate.total>0&&!p.price)p.price=Math.round(+d.estimate.total);
+    if(kp)p.desc=(p.desc?p.desc+'\n\n':'')+kp;
+    save();closeSheet();openProject=p.id;TAB='projects';showSettings=showClients=showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();
+    alert('Добавлено в проект «'+p.name+'»: позиции, закупки, смета и текст КП. Проверь и поправь вручную.');
+  };
+  if(pid)apply(pid);else pickProjectThen(apply);
 }
 
 /* ---------- AI-визуализация: концепт-рендер по описанию (Google Gemini через Cloud Function) ---------- */
@@ -2220,7 +2227,8 @@ function compressDataUrl(src,cb){
 }
 function saveRender(pid){
   const src=window._visImg;if(!src)return;
-  compressDataUrl(src,d=>{const p=DB.projects.find(x=>x.id===pid);if(!p)return;p.renders=p.renders||[];p.renders.push({id:uid(),img:d,created:todayISO()});save();closeSheet();render();alert('Визуализация сохранена в проект.');});
+  const apply=(tp)=>{compressDataUrl(src,d=>{const p=DB.projects.find(x=>x.id===tp);if(!p)return;p.renders=p.renders||[];p.renders.push({id:uid(),img:d,created:todayISO()});save();closeSheet();openProject=p.id;TAB='projects';showSettings=showClients=showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();alert('Визуализация сохранена в проект «'+p.name+'».');});};
+  if(pid)apply(pid);else pickProjectThen(apply);
 }
 /* Связка: концепт → AI-расчёт по фото (подставляет картинку и описание в расчёт) */
 function estimateFromRender(pid,src){
@@ -2230,6 +2238,35 @@ function estimateFromRender(pid,src){
   compressDataUrl(src,d=>{aiEstimateSheet(pid,{photos:[d],desc:base,fromRender:true});});
 }
 function estimateFromSaved(pid,rid){const p=DB.projects.find(x=>x.id===pid);const r=(p&&p.renders||[]).find(x=>x.id===rid);if(r)estimateFromRender(pid,r.img);}
+
+/* ---------- Вкладка «ИИ»: AI без привязки к проекту, с выбором проекта потом ---------- */
+function renderAiTab(){
+  $('subtitle').textContent='AI-помощник';
+  const n=activeProjects().length;
+  $('content').innerHTML=`
+    <div class="proj-name" style="font-size:23px">🤖 AI-помощник</div>
+    <div class="fin-sub" style="margin:6px 0 16px">Сделай расчёт сметы или концепт-визуализацию — потом выберешь, в какой проект добавить результат (или создашь новый).</div>
+    <button class="btn act-btn" onclick="aiEstimateSheet('')" style="margin-bottom:12px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700;padding:16px 14px">🤖 AI-расчёт по фото</button>
+    <button class="btn act-btn" onclick="visualizeSheet('')" style="margin-bottom:16px;background:linear-gradient(90deg,#5e8aa8,#7fb0d0);color:#0d1520;font-weight:700;padding:16px 14px">🖼 Визуализация (концепт)</button>
+    <div class="fin-sub">💡 То же самое можно запускать внутри конкретного проекта — во вкладке «Инфо».${n?'':' Проектов пока нет — результат сохранишь в новый.'}</div>`;
+  $('content').scrollTop=0;
+}
+function pickProjectThen(cb){
+  window.__pickProjCb=cb;
+  const aps=activeProjects();
+  openSheet(`<h2>В какой проект добавить?</h2>
+    <button class="btn" style="width:100%;margin-bottom:10px" onclick="__pickProjNew()">➕ Новый проект</button>
+    ${aps.length?`<div class="fin-sub" style="margin:8px 0 6px">Или выбери существующий:</div>`:'<div class="fin-sub" style="margin:8px 0">Активных проектов нет — создай новый.</div>'}
+    ${aps.map(p=>`<button class="btn btn-ghost" style="width:100%;margin-bottom:8px;text-align:left" onclick="__pickProj('${p.id}')">${p.objectId?esc(objName(p.objectId))+' · ':''}${esc(p.name)}</button>`).join('')}
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Отмена</button></div>`);
+}
+function __pickProj(pid){const cb=window.__pickProjCb;window.__pickProjCb=null;if(cb)cb(pid);}
+function __pickProjNew(){
+  const n=prompt('Название нового проекта:','');if(n===null)return;const nm=n.trim();if(!nm)return;
+  const proj={id:uid(),name:nm,client:'',phone:'',created:todayISO(),deadline:'',price:0,prepay:0,finalpay:0,desc:'',status:'active',units:[],stages:makeStages(),tasks:[],shop:[],mainExpenses:[],expenses:[]};
+  DB.projects.unshift(proj);save();
+  __pickProj(proj.id);
+}
 
 /* ---------- FAB / sheets ---------- */
 function onFab(){
