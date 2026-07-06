@@ -1909,6 +1909,11 @@ function supList(){const s=stg().suppliers;return (s&&s.length)?s:DEFAULT_SUPPLI
 function themeMode(){return (stg().theme&&stg().theme.mode)||'dark';}
 function themeAccent(){return (stg().theme&&stg().theme.accent)||'#c08a4a';}
 function notifyHour(){const h=stg().notifyHour;return (h===0||h)?h:9;}
+const DEFAULT_AI_PRICING=`Себестоимость материалов — от поставщиков Salex (salex.bg) и Lamino. Фурнитура — обычно Hettich.
+
+Эталонные цены (реальные заказы — ориентир для AI, масштабируется под метраж/материал/сложность):
+• Кухня прямая ~4,4 пог.м (верх + низ + пенал-колонна под встройку), фасады МДФ-плёнка матовая, распашные, фурнитура Hettich — 3400 € с монтажом (без бытовой техники). ≈770 €/пог.м под ключ.`;
+function aiPricing(){const p=stg().aiPricing;return (typeof p==='string'&&p.trim())?p:DEFAULT_AI_PRICING;}
 function lighten(hex){const m=(hex||'').replace('#','');if(m.length!==6)return hex;const p=i=>parseInt(m.substr(i,2),16);const f=x=>Math.round(x+(255-x)*0.22).toString(16).padStart(2,'0');return '#'+f(p(0))+f(p(2))+f(p(4));}
 function applySettings(){
   document.body.dataset.theme=themeMode();
@@ -1967,6 +1972,14 @@ function renderSettings(){
   supList().forEach((sup,i)=>{h+=`<div class="money-row"><div style="flex:1;cursor:pointer" onclick="renameSupplier(${i})"><div class="item-txt">${esc(sup)}</div></div><button class="del" onclick="delSupplier(${i})">×</button></div>`;});
   h+=`</div><button class="btn btn-ghost btn-sm" style="width:100%" onclick="addSupplier()">+ Добавить поставщика</button>
 
+    <div class="sec-title">Цены для AI-расчёта</div>
+    <div class="card">
+      <label class="f">Эталонные цены мастерской</label>
+      <textarea id="aiPricingBox" style="min-height:160px" onblur="setAiPricing(this.value)">${esc(aiPricing())}</textarea>
+      <div class="fin-sub" style="margin-top:8px">AI опирается на эти реальные цены, когда считает смету по фото. Добавляй сюда свои эталоны (кухни, шкафы, гардеробные, ванные) в формате «что за изделие — итоговая цена». Чем точнее примеры, тем ближе к реальности расчёт. Рынок (Болгария, €), правило «технику не включаем, монтаж включаем» учитываются автоматически.</div>
+      <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="resetAiPricing()">↺ Вернуть пример по умолчанию</button>
+    </div>
+
     <div class="sec-title">Уведомления</div>
     <div class="card">
       <label class="f">Время утреннего напоминания</label>
@@ -1989,6 +2002,8 @@ function setTheme(m){const s=stg();s.theme=s.theme||{};s.theme.mode=m;save();app
 function setAccent(c){const s=stg();s.theme=s.theme||{};s.theme.accent=c;save();applySettings();renderSettings();}
 function setCurrency(c){stg().currency=c;save();renderSettings();}
 function setNotifyHour(h){stg().notifyHour=+h;save();}
+function setAiPricing(v){stg().aiPricing=(v||'').trim();save();}
+function resetAiPricing(){if(!confirm('Вернуть пример цен по умолчанию? Ваш текст будет заменён.'))return;stg().aiPricing='';save();renderSettings();}
 function addSupplier(){const n=prompt('Название поставщика:','');if(n&&n.trim()){const s=stg();s.suppliers=supList().slice();s.suppliers.push(n.trim());save();renderSettings();}}
 function renameSupplier(i){const list=supList();const n=prompt('Название поставщика:',list[i]);if(n===null)return;const s=stg();s.suppliers=list.slice();if(n.trim())s.suppliers[i]=n.trim();save();renderSettings();}
 function delSupplier(i){const s=stg();s.suppliers=supList().slice();s.suppliers.splice(i,1);save();renderSettings();}
@@ -2109,7 +2124,7 @@ async function runAiEstimate(pid){
   try{
     if(!cloudUid||typeof firebase==='undefined'||!firebase.auth().currentUser){alert('Сначала войдите в синхронизацию (значок облака) — AI-расчёт привязан к аккаунту.');if(btn){btn.disabled=false;btn.textContent='Рассчитать';}return;}
     const token=await firebase.auth().currentUser.getIdToken();
-    const r=await fetch(AI_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({images:aiPhotos,description:desc,currency:curSym()})});
+    const r=await fetch(AI_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({images:aiPhotos,description:desc,currency:curSym(),pricing:aiPricing()})});
     const data=await r.json().catch(()=>({error:'Пустой ответ'}));
     if(!r.ok||data.error){if(res)res.innerHTML=`<div class="fin-sub" style="color:var(--red);margin-top:12px">Ошибка: ${esc(data.error||('HTTP '+r.status))}</div>`;if(btn){btn.disabled=false;btn.textContent='Рассчитать';}return;}
     window._aiData=data;renderAiResult(pid,data);
