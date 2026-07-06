@@ -601,7 +601,7 @@ function makeStages(){return DEFAULT_STAGES.map(n=>({name:n,date:'',done:false})
 let TAB='projects';
 let openProject=null;
 let openObject=null;
-let projTab='info';
+let projTab='order';
 let showArchive=false; // режим просмотра «Завершённые проекты»
 let showSettings=false;
 let showClients=false, cliView=null, _cliMerged=[];
@@ -883,7 +883,7 @@ function delObject(oid){
 }
 function setProjObject(pid,oid){const p=DB.projects.find(x=>x.id===pid);if(oid)p.objectId=oid;else delete p.objectId;save();}
 
-function openProj(id){openProject=id;projTab='info';meFolder=null;showClients=false;cliView=null;render();}
+function openProj(id){openProject=id;projTab='order';meFolder=null;showClients=false;cliView=null;render();}
 function backFromProject(){const p=DB.projects.find(x=>x.id===openProject);openProject=null;openObject=(p&&p.objectId)?p.objectId:null;render();}
 
 /* ---------- ЗАВЕРШЁННЫЕ (АРХИВ) ---------- */
@@ -938,12 +938,11 @@ function renderProjectDetail(){
   const ro=!!p.archived;
   const tabBtn=(k,l)=>`<button class="${projTab===k?'on':''}" onclick="projTab='${k}';render()">${l}</button>`;
   let body='';
-  if(projTab==='stages')body=stagesView(p);
-  else if(projTab==='money')body=moneyView(p);
+  if(projTab==='order')body=infoView(p)+`<div class="sec-title" style="margin-top:18px">💰 Деньги</div>`+moneyView(p);
+  else if(projTab==='stages')body=stagesView(p);
   else if(projTab==='tasks')body=listView(p,'tasks','Что сделать','Добавить шаг…');
   else if(projTab==='shop')body=projShopView(p);
   else if(projTab==='measures')body=measuresView(p);
-  else if(projTab==='info')body=infoView(p);
 
   $('content').innerHTML=`
     <button class="back" onclick="backFromProject()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> ${ro?'К завершённым':(p.objectId?'К объекту':'К проектам')}</button>
@@ -951,9 +950,10 @@ function renderProjectDetail(){
     <div class="proj-name" style="font-size:23px">${esc(p.name)}</div>
     ${(p.client||p.phone)?`<div class="proj-desc" style="margin-bottom:4px">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:''}
     ${(p.units&&p.units.length)?`<div class="proj-desc" style="color:var(--wood-2);margin-bottom:6px">📦 ${p.units.map(u=>esc(u.name)).join(', ')}</div>`:''}
-    ${ro?`<div class="ro-banner">🔒 Проект завершён — только просмотр. Чтобы редактировать, верни его в работу (вкладка «Инфо»).</div>`:''}
+    ${ro?`<div class="ro-banner">🔒 Проект завершён — только просмотр. Чтобы редактировать, верни его в работу (кнопка «О заказе»).</div>`:''}
+    <button class="btn act-btn" style="margin-bottom:8px;font-weight:700;${projTab==='order'?'background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b':''}" onclick="projTab='order';render()">📋 О заказе и деньгах</button>
     <div class="tabs">
-      ${tabBtn('info','Инфо')}${tabBtn('stages','График')}${tabBtn('money','Деньги')}${tabBtn('tasks','Задачи')}${tabBtn('shop','Закупки')}${tabBtn('measures','Замеры')}
+      ${tabBtn('stages','График')}${tabBtn('tasks','Задачи')}${tabBtn('shop','Закупки')}${tabBtn('measures','Замеры')}
     </div><div class="${ro?'ro-lock':''}">${body}</div>`;
 }
 
@@ -2291,7 +2291,7 @@ function renderAiTab(){
     <div class="fin-sub" style="margin:6px 0 16px">Сделай расчёт сметы или концепт-визуализацию — потом выберешь, в какой проект добавить результат (или создашь новый).</div>
     <button class="btn act-btn" onclick="aiEstimateSheet('')" style="margin-bottom:12px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700;padding:16px 14px">🤖 AI-расчёт по фото</button>
     <button class="btn act-btn" onclick="visualizeSheet('')" style="margin-bottom:16px;background:linear-gradient(90deg,#5e8aa8,#7fb0d0);color:#0d1520;font-weight:700;padding:16px 14px">🖼 Визуализация (концепт)</button>
-    <div class="fin-sub">💡 То же самое можно запускать внутри конкретного проекта — во вкладке «Инфо».${n?'':' Проектов пока нет — результат сохранишь в новый.'}</div>`;
+    <div class="fin-sub">💡 То же самое можно запускать внутри конкретного проекта — кнопка «AI-помощник» в разделе «О заказе».${n?'':' Проектов пока нет — результат сохранишь в новый.'}</div>`;
   $('content').scrollTop=0;
 }
 function pickProjectThen(cb){
@@ -2507,7 +2507,7 @@ async function transcribeBlob(blob){
 /* ---------- FAB / sheets ---------- */
 function onFab(){
   if(openProject){
-    if(projTab==='money')sheetExpensePick(openProject);
+    if(projTab==='order')sheetExpensePick(openProject);
     else if(projTab==='shop')sheetProjShop(openProject);
     else if(projTab==='measures')addMeasure(openProject);
     else if(projTab==='tasks'){const e=$('subAdd');if(e)e.focus();}
