@@ -754,9 +754,8 @@ function filterProjects(){
   }
   const loose=activeProjects().filter(p=>!p.objectId||!objs.some(o=>o.id===p.objectId));
   h=dashboardBlock();
-  h+=`<div style="margin-bottom:12px"><button class="btn btn-ghost btn-sm" style="width:100%" onclick="sheetObject()">🏠 + Объект</button>${(!objs.length)?`<div class="fin-sub" style="margin-top:4px;text-align:center">Объект — адрес с несколькими проектами (кухня, шкаф…). Одно изделие — просто «+» внизу.</div>`:''}</div>`;
   if(!objs.length&&!loose.length){
-    h+=emptyState('M3 7h18M3 12h18M3 17h18','Пока нет проектов.<br>Нажми «+», чтобы добавить проект, или «+ Объект» — квартиру с несколькими проектами.');
+    h+=emptyState('M3 7h18M3 12h18M3 17h18','Пока нет проектов.<br>Нажми «+», чтобы добавить первый проект.');
     box.innerHTML=h;return;
   }
   if(objs.length){h+=`<div class="proj-grid">`;objs.forEach(o=>h+=objectCard(o));h+=`</div>`;}
@@ -882,6 +881,22 @@ function delObject(oid){
   save();render();
 }
 function setProjObject(pid,oid){const p=DB.projects.find(x=>x.id===pid);if(oid)p.objectId=oid;else delete p.objectId;save();}
+/* Добавить ещё один проект к тому же клиенту/адресу. Если проект ещё не в группе — группа
+   создаётся автоматически (без отдельного экрана «сначала создай объект»). */
+function addSiblingProject(pid){
+  const p=DB.projects.find(x=>x.id===pid);if(!p)return;
+  let oid=p.objectId;
+  if(!oid){
+    const obj={id:uid(),name:p.client||p.name,client:p.client||'',phone:p.phone||'',address:'',created:todayISO()};
+    DB.objects=DB.objects||[];DB.objects.push(obj);
+    p.objectId=obj.id;save();
+    oid=obj.id;
+  }
+  openProject=null;openObject=oid;showSettings=showClients=showArchive=false;
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));
+  render();
+  sheetProject(oid);
+}
 
 function openProj(id){openProject=id;projTab='order';meFolder=null;showClients=false;cliView=null;render();}
 function backFromProject(){const p=DB.projects.find(x=>x.id===openProject);openProject=null;openObject=(p&&p.objectId)?p.objectId:null;render();}
@@ -1178,6 +1193,7 @@ function infoView(p){
     ${p.created?`<div class="fin-sub" style="margin-top:12px">📅 Проект создан: ${fmtDate(p.created)}</div>`:''}
     ${p.archived&&p.archivedAt?`<div class="fin-sub" style="margin-top:4px">✅ Завершён: ${fmtDate(p.archivedAt)}</div>`:''}
   </div>
+  <button class="btn btn-ghost act-btn" onclick="addSiblingProject('${p.id}')" style="margin-bottom:10px">➕ Ещё проект (тот же клиент/адрес)</button>
   <button class="btn act-btn" onclick="aiMenuSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">🤖 AI-помощник</button>
   ${rendersSection(p)}
   ${photosSection(p)}
