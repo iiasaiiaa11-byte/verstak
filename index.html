@@ -1165,6 +1165,49 @@ function objectReport(oid){
     <div class="rep-foot">${esc(wsName())} · Спасибо за заказ!</div>`;
   setTimeout(()=>window.print(),150);
 }
+/* ---------- Финансовый отчёт для себя (не для клиента): все приходы/расходы/закупки списком ---------- */
+function financeReport(id){
+  const p=DB.projects.find(x=>x.id===id);if(!p)return;
+  const f=fin(p);
+  const w=ws();const wsContacts=[w.phone,w.address,w.site].filter(Boolean).join(' · ');
+  const shop=p.shop||[];
+  const shopRows=shop.length?shop.map(s=>`<div class="rep-row"><span>${esc(s.txt)}${s.qty?` · ${esc(s.qty)}`:''}${s.supplier?` <span style="color:#999;font-weight:400">— ${esc(s.supplier)}</span>`:''}${!s.done?' <span style="color:#c1543c">(не куплено)</span>':''}</span><b>${money(s.price)}</b></div>`).join(''):`<div style="color:#999;font-size:13px;padding:6px 0">Пусто</div>`;
+  const shopTotal=shop.reduce((s,x)=>s+(+x.price||0),0);
+  const expRows=(kind)=>{
+    const arr=p[kind==='main'?'mainExpenses':'expenses']||[];
+    if(!arr.length)return `<div style="color:#999;font-size:13px;padding:6px 0">Пусто</div>`;
+    return arr.map(x=>`<div class="rep-row"><span>${esc(x.title)}${x.cat?` <span style="color:#999;font-weight:400">— ${esc(x.cat)}</span>`:''} <span style="color:#999;font-weight:400">${fmtFull(x.date)}</span></span><b>${money(x.amount)}</b></div>`).join('');
+  };
+  document.getElementById('report').innerHTML=`
+    ${w.logo?`<div style="text-align:center"><img src="${w.logo}" style="max-height:64px;margin-bottom:6px"></div>`:''}
+    <div class="rep-h1">${esc(wsName())}</div>
+    ${wsContacts?`<div class="rep-sub">${esc(wsContacts)}</div>`:''}
+    <div class="rep-sub">Финансовый отчёт по проекту (внутренний) · ${fmtFull(todayISO())}</div>
+    <div class="rep-sec">Заказ</div>
+    <div class="rep-row"><span>Название</span><b>${esc(p.name)}</b></div>
+    ${p.client?`<div class="rep-row"><span>Заказчик</span><b>${esc(p.client)}</b></div>`:''}
+    ${p.phone?`<div class="rep-row"><span>Телефон</span><b>${esc(p.phone)}</b></div>`:''}
+    <div class="rep-sec">Приход</div>
+    <div class="rep-row"><span>Общая сумма заказа</span><b>${money(f.price)}</b></div>
+    <div class="rep-row"><span>Предоплата</span><b>${money(f.prepay)}</b></div>
+    <div class="rep-row"><span>Доплата</span><b>${money(f.finalpay)}</b></div>
+    <div class="rep-total"><span>Итого получено</span><span>${money(f.income)}</span></div>
+    <div class="rep-sec">Закупки (${shop.length})</div>
+    ${shopRows}
+    ${shop.length?`<div class="rep-row" style="border-bottom:none;font-weight:700"><span>Итого по закупкам</span><b>${money(shopTotal)}</b></div>`:''}
+    <div class="rep-sec">Основные расходы</div>
+    ${expRows('main')}
+    <div class="rep-sec">Дополнительные расходы</div>
+    ${expRows('extra')}
+    <div class="rep-sec">Итоги</div>
+    <div class="rep-row"><span>Всего потрачено (основные + доп. расходы)</span><b>${money(f.spent)}</b></div>
+    <div class="rep-row"><span>Получено от клиента</span><b>${money(f.income)}</b></div>
+    <div class="rep-total"><span>Осталось денег по факту (получено − потрачено)</span><span>${money(f.balance)}</span></div>
+    <div class="rep-row"><span>Осталось получить от клиента</span><b>${money(f.remain)}</b></div>
+    <div class="rep-row"><span>Прибыль (сумма заказа − все расходы)</span><b>${money(f.profit)}</b></div>
+    <div class="rep-foot">${esc(wsName())} · внутренний отчёт, не для клиента</div>`;
+  setTimeout(()=>window.print(),150);
+}
 function photosSection(p){
   const ph=p.photos||[];
   const grp=which=>{
@@ -1217,6 +1260,7 @@ function infoView(p){
   ${rendersSection(p)}
   ${photosSection(p)}
   <button class="btn act-btn" onclick="reportLangSheet('${p.id}')" style="margin-bottom:10px">📄 Отчёт / КП для клиента (PDF)</button>
+  <button class="btn btn-ghost act-btn" onclick="financeReport('${p.id}')" style="margin-bottom:10px">🧾 Финансовый отчёт (для себя)</button>
   ${unitsCard(p)}
   ${p.archived
     ? `<button class="btn act-btn" onclick="unarchiveProject('${p.id}')" style="margin-bottom:10px">↩️ Вернуть в работу</button>`
