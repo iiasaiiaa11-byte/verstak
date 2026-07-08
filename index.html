@@ -601,7 +601,7 @@ function makeStages(){return DEFAULT_STAGES.map(n=>({name:n,date:'',done:false})
 let TAB='projects';
 let openProject=null;
 let openObject=null;
-let projTab='order';
+let projTab='stages';
 let showArchive=false; // режим просмотра «Завершённые проекты»
 let showSettings=false;
 let showClients=false, cliView=null, _cliMerged=[];
@@ -656,6 +656,7 @@ function openPhoto(src){
 /* ---------- helpers ---------- */
 const $=id=>document.getElementById(id);
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function truncate(s,n){s=(s||'').toString().trim();return s.length>n?s.slice(0,n).trim()+'…':s;}
 function fmtDate(d){if(!d)return '';const dt=new Date(d+'T00:00');return dt.toLocaleDateString('ru-RU',{day:'numeric',month:'short'});}
 function daysLeft(d){if(!d)return null;const t=new Date();t.setHours(0,0,0,0);const dt=new Date(d+'T00:00');return Math.round((dt-t)/86400000);}
 function money(n,lang){n=Number(n)||0;const loc=lang==='en'?'en-GB':lang==='bg'?'bg-BG':'ru-RU';return n.toLocaleString(loc,{maximumFractionDigits:2})+' '+curSym();}
@@ -775,8 +776,8 @@ function projectCard(p){
   const f=fin(p);
   return `<div class="card proj-card" onclick="openProj('${p.id}')">
     <div class="proj-top"><div><div class="proj-name">${esc(p.name)}</div>
-    ${(p.client||p.phone)?`<div class="proj-desc">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:(p.desc?`<div class="proj-desc">${esc(p.desc)}</div>`:'')}
-    ${(p.units&&p.units.length)?`<div class="proj-desc" style="color:var(--wood-2);margin-top:4px">📦 ${p.units.map(u=>esc(u.name)).join(', ')}</div>`:''}</div>${badge}</div>
+    ${(p.client||p.phone)?`<div class="proj-desc">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:(p.desc?`<div class="proj-desc">${esc(truncate(p.desc,70))}</div>`:'')}
+    </div>${badge}</div>
     <div class="pbar"><i style="width:${pct}%"></i></div>
     <div class="pbar-label"><span>Этапы: ${done}/${stages.length}</span><span>${pct}%</span></div>
     <div class="proj-meta">
@@ -898,7 +899,7 @@ function addSiblingProject(pid){
   sheetProject(oid);
 }
 
-function openProj(id){openProject=id;projTab='order';meFolder=null;showClients=false;cliView=null;render();}
+function openProj(id){openProject=id;projTab='stages';meFolder=null;showClients=false;cliView=null;render();}
 function backFromProject(){const p=DB.projects.find(x=>x.id===openProject);openProject=null;openObject=(p&&p.objectId)?p.objectId:null;render();}
 
 /* ---------- ЗАВЕРШЁННЫЕ (АРХИВ) ---------- */
@@ -918,8 +919,8 @@ function renderArchive(){
       const pct=stages.length?Math.round(done/stages.length*100):0;
       h+=`<div class="card proj-card" onclick="openProj('${p.id}')">
         <div class="proj-top"><div><div class="proj-name">${esc(p.name)}</div>
-        ${(p.client||p.phone)?`<div class="proj-desc">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:(p.desc?`<div class="proj-desc">${esc(p.desc)}</div>`:'')}
-        ${(p.units&&p.units.length)?`<div class="proj-desc" style="color:var(--wood-2);margin-top:4px">📦 ${p.units.map(u=>esc(u.name)).join(', ')}</div>`:''}</div><span class="badge b-done">Завершён</span></div>
+        ${(p.client||p.phone)?`<div class="proj-desc">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:(p.desc?`<div class="proj-desc">${esc(truncate(p.desc,70))}</div>`:'')}
+        </div><span class="badge b-done">Завершён</span></div>
         <div class="pbar"><i style="width:${pct}%"></i></div>
         <div class="pbar-label"><span>Этапы: ${done}/${stages.length}</span><span>${pct}%</span></div>
         <div class="proj-meta">
@@ -953,7 +954,8 @@ function renderProjectDetail(){
   const ro=!!p.archived;
   const tabBtn=(k,l)=>`<button class="${projTab===k?'on':''}" onclick="projTab='${k}';render()">${l}</button>`;
   let body='';
-  if(projTab==='order')body=infoView(p)+`<div class="sec-title" style="margin-top:18px">💰 Деньги</div>`+moneyView(p);
+  if(projTab==='order')body=infoView(p);
+  else if(projTab==='money')body=moneyView(p);
   else if(projTab==='stages')body=stagesView(p);
   else if(projTab==='tasks')body=listView(p,'tasks','Что сделать','Добавить шаг…');
   else if(projTab==='shop')body=projShopView(p);
@@ -962,11 +964,9 @@ function renderProjectDetail(){
   $('content').innerHTML=`
     <button class="back" onclick="backFromProject()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> ${ro?'К завершённым':(p.objectId?'К объекту':'К проектам')}</button>
     ${p.objectId?`<div class="proj-desc" style="color:var(--wood-2);margin-bottom:2px">🏠 ${esc(objName(p.objectId))}</div>`:''}
-    <div class="proj-name" style="font-size:23px">${esc(p.name)}</div>
-    ${(p.client||p.phone)?`<div class="proj-desc" style="margin-bottom:4px">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:''}
-    ${(p.units&&p.units.length)?`<div class="proj-desc" style="color:var(--wood-2);margin-bottom:6px">📦 ${p.units.map(u=>esc(u.name)).join(', ')}</div>`:''}
-    ${ro?`<div class="ro-banner">🔒 Проект завершён — только просмотр. Чтобы редактировать, верни его в работу (кнопка «О заказе»).</div>`:''}
-    <button class="btn act-btn" style="margin-bottom:8px;font-weight:700;${projTab==='order'?'background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b':''}" onclick="projTab='order';render()">📋 О заказе и деньгах</button>
+    <div class="proj-name" style="font-size:19px;margin-bottom:10px">${esc(p.name)}</div>
+    ${ro?`<div class="ro-banner">🔒 Проект завершён — только просмотр. Чтобы редактировать, верни его в работу (вкладка «Инфо»).</div>`:''}
+    <div class="tabs" style="margin-bottom:8px">${tabBtn('order','📋 Инфо')}${tabBtn('money','💰 Деньги')}</div>
     <div class="tabs">
       ${tabBtn('stages','График')}${tabBtn('tasks','Задачи')}${tabBtn('shop','Закупки')}${tabBtn('measures','Замеры')}
     </div><div class="${ro?'ro-lock':''}">${body}</div>`;
@@ -1164,7 +1164,7 @@ function addProjPhoto(pid,phase){
 function delProjPhoto(pid,id){if(!confirm('Удалить фото?'))return;const p=DB.projects.find(x=>x.id===pid);p.photos=(p.photos||[]).filter(x=>x.id!==id);save();render();}
 function infoView(p){
   const badge=p.status==='done'?'Готов':p.status==='hold'?'Пауза':'В работе';
-  return `${unitsCard(p)}<div class="card" style="line-height:1.7">
+  return `<div class="card" style="line-height:1.7">
     <label class="f">Название проекта</label>
     <input id="iName" value="${esc(p.name||'')}" onblur="setName('${p.id}',this.value)" placeholder="Название проекта">
     <div class="row">
@@ -1198,6 +1198,7 @@ function infoView(p){
   ${rendersSection(p)}
   ${photosSection(p)}
   <button class="btn act-btn" onclick="reportLangSheet('${p.id}')" style="margin-bottom:10px">📄 Отчёт / КП для клиента (PDF)</button>
+  ${unitsCard(p)}
   ${p.archived
     ? `<button class="btn act-btn" onclick="unarchiveProject('${p.id}')" style="margin-bottom:10px">↩️ Вернуть в работу</button>`
     : `<button class="btn act-btn" onclick="archiveProject('${p.id}')" style="margin-bottom:10px;background:var(--green);color:#fff">✅ Завершить проект (в архив)</button>`}
@@ -2265,8 +2266,8 @@ function applyAiResult(pid){
     p.shop=p.shop||[];(d.materials||[]).forEach(m=>{if(m&&m.name)p.shop.push({id:uid(),txt:m.name,qty:m.qty||'',price:0,supplier:'',note:'из AI-расчёта',done:false});});
     if(d.estimate&&+d.estimate.total>0&&!p.price)p.price=Math.round(+d.estimate.total);
     if(kp)p.kpText=kp;
-    save();closeSheet();openProject=p.id;TAB='projects';showSettings=showClients=showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();
-    alert('Добавлено в проект «'+p.name+'»: закупки, смета и текст КП. «Мебель в заказе» AI больше не заполняет — добавь вручную во вкладке «О заказе».');
+    save();closeSheet();openProject=p.id;projTab='order';TAB='projects';showSettings=showClients=showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();
+    alert('Добавлено в проект «'+p.name+'»: закупки, смета и текст КП. «Мебель в заказе» AI больше не заполняет — добавь вручную во вкладке «Инфо».');
   };
   if(pid)apply(pid);else pickProjectThen(apply);
 }
@@ -2331,7 +2332,7 @@ function compressDataUrl(src,cb){
 }
 function saveRender(pid){
   const src=window._visImg;if(!src)return;
-  const apply=(tp)=>{compressDataUrl(src,d=>{const p=DB.projects.find(x=>x.id===tp);if(!p)return;p.renders=p.renders||[];p.renders.push({id:uid(),img:d,created:todayISO()});save();closeSheet();openProject=p.id;TAB='projects';showSettings=showClients=showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();alert('Визуализация сохранена в проект «'+p.name+'».');});};
+  const apply=(tp)=>{compressDataUrl(src,d=>{const p=DB.projects.find(x=>x.id===tp);if(!p)return;p.renders=p.renders||[];p.renders.push({id:uid(),img:d,created:todayISO()});save();closeSheet();openProject=p.id;projTab='order';TAB='projects';showSettings=showClients=showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();alert('Визуализация сохранена в проект «'+p.name+'».');});};
   if(pid)apply(pid);else pickProjectThen(apply);
 }
 /* Связка: концепт → AI-расчёт по фото (подставляет картинку и описание в расчёт) */
@@ -2392,7 +2393,7 @@ function renderAiTab(){
     <div class="fin-sub" style="margin:6px 0 16px">Сделай расчёт сметы или концепт-визуализацию — потом выберешь, в какой проект добавить результат (или создашь новый).</div>
     <button class="btn act-btn" onclick="aiEstimateSheet('')" style="margin-bottom:12px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700;padding:16px 14px">🤖 AI-расчёт по фото</button>
     <button class="btn act-btn" onclick="visualizeSheet('')" style="margin-bottom:16px;background:linear-gradient(90deg,#5e8aa8,#7fb0d0);color:#0d1520;font-weight:700;padding:16px 14px">🖼 Визуализация (концепт)</button>
-    <div class="fin-sub">💡 То же самое можно запускать внутри конкретного проекта — кнопка «AI-помощник» в разделе «О заказе».${n?'':' Проектов пока нет — результат сохранишь в новый.'}</div>`;
+    <div class="fin-sub">💡 То же самое можно запускать внутри конкретного проекта — кнопка «AI-помощник» во вкладке «Инфо».${n?'':' Проектов пока нет — результат сохранишь в новый.'}</div>`;
   $('content').scrollTop=0;
 }
 function pickProjectThen(cb){
@@ -2614,7 +2615,7 @@ async function transcribeBlob(blob){
 /* ---------- FAB / sheets ---------- */
 function onFab(){
   if(openProject){
-    if(projTab==='order')sheetExpensePick(openProject);
+    if(projTab==='money')sheetExpensePick(openProject);
     else if(projTab==='shop')sheetProjShop(openProject);
     else if(projTab==='measures')addMeasure(openProject);
     else if(projTab==='tasks'){const e=$('subAdd');if(e)e.focus();}
