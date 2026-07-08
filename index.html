@@ -1476,7 +1476,7 @@ function tasksByProject(){
     const shops=(p.shop||[]).filter(s=>!s.done);
     if(!stages.length&&!shops.length)return;
     any=true;
-    h+=`<div class="sec-title">📦 ${esc(p.name)}${p.customer?`<span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;margin-left:auto">${esc(p.customer)}</span>`:''}</div><div class="card">`;
+    h+=`<div class="sec-title">📦 ${esc(p.name)}${p.objectId?`<span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;margin-left:auto">(${esc(objName(p.objectId))})</span>`:''}</div><div class="card">`;
     stages.forEach(o=>{
       const dl=daysLeft(o.s.date),over=dl!==null&&dl<0;
       h+=`<div class="item">
