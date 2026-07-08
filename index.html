@@ -110,8 +110,15 @@
   }
   .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--wood);}
 
-  .proj-card{cursor:pointer;transition:.15s;}
+  .proj-card{cursor:pointer;transition:.15s;touch-action:pan-y;position:relative;z-index:1;}
   .proj-card:active{transform:scale(0.99);}
+  .proj-card-wrap{position:relative;overflow:hidden;border-radius:14px;}
+  .proj-card-actions{position:absolute;inset:0;display:flex;justify-content:flex-end;align-items:stretch;}
+  .proj-card-actions button{width:60px;border:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:18px;color:#fff;cursor:pointer;font-family:'Inter';}
+  .proj-card-actions button span{font-size:10px;}
+  .proj-card-actions .a-call{background:var(--blue);}
+  .proj-card-actions .a-stage{background:var(--wood);color:#1a140b;}
+  .proj-card-actions .a-archive{background:var(--green);}
   .proj-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
   .proj-name{font-family:'Oswald';font-size:19px;font-weight:600;letter-spacing:0.4px;}
   .proj-desc{color:var(--muted);font-size:13px;margin-top:3px;line-height:1.4;}
@@ -625,6 +632,7 @@ let showArchive=false; // режим просмотра «Завершённые
 let showSettings=false;
 let showClients=false, cliView=null, _cliMerged=[];
 let projQuery='';
+let projStatusFilter='';
 let stockQuery='';
 // активные проекты — всё, что не отправлено в «Завершённые»
 function activeProjects(){return DB.projects.filter(p=>!p.archived);}
@@ -737,7 +745,7 @@ function dashboardBlock(){
   (DB.reminders||[]).forEach(r=>{if(r.date)dls.push({date:r.date,txt:r.txt||'',ic:'🔔'});});
   dls.sort((a,b)=>a.date<b.date?-1:(a.date>b.date?1:0));
   const soon=dls.slice(0,3);
-  let h=`<div class="card" style="margin-bottom:12px">
+  let h=`<div class="sec-title">Обзор</div><div class="card" style="margin-bottom:12px">
     <div class="proj-meta" style="margin-bottom:2px">
       ${toReceive>0?`<span class="meta-pill">💶 К получению: <b>${money(toReceive)}</b></span>`:''}
       <span class="meta-pill">📦 <b>${aps.length}</b> в работе</span>
@@ -750,6 +758,18 @@ function dashboardBlock(){
   h+=`</div>`;
   return h;
 }
+function statusChipsHTML(allProjs){
+  const counts={active:0,hold:0,done:0};
+  allProjs.forEach(p=>{const s=p.status||'active';counts[s]=(counts[s]||0)+1;});
+  const chip=(key,label,count)=>`<button class="chip ${projStatusFilter===key?'on':''}" onclick="setProjStatusFilter('${key}')">${label} (${count})</button>`;
+  return `<div class="chips" style="margin-bottom:12px">
+    ${chip('','Все',allProjs.length)}
+    ${chip('active','В работе',counts.active)}
+    ${chip('hold','Пауза',counts.hold)}
+    ${chip('done','Готово',counts.done)}
+  </div>`;
+}
+function setProjStatusFilter(k){projStatusFilter=k;filterProjects();}
 function renderProjects(){
   if(showArchive){return renderArchive();}
   $('subtitle').textContent='мастерская · управление производством';
@@ -772,15 +792,24 @@ function filterProjects(){
     }
     box.innerHTML=h;return;
   }
-  const loose=activeProjects().filter(p=>!p.objectId||!objs.some(o=>o.id===p.objectId));
+  const allProjs=activeProjects();
   h=dashboardBlock();
-  if(!objs.length&&!loose.length){
+  if(!allProjs.length){
     h+=emptyState('M3 7h18M3 12h18M3 17h18','Пока нет проектов.<br>Нажми «+», чтобы добавить первый проект.');
     box.innerHTML=h;return;
   }
-  if(objs.length){h+=`<div class="proj-grid">`;objs.forEach(o=>h+=objectCard(o));h+=`</div>`;}
+  h+=statusChipsHTML(allProjs);
+  const filtProjs=allProjs.filter(p=>!projStatusFilter||(p.status||'active')===projStatusFilter);
+  const matchObjIds=new Set(filtProjs.filter(p=>p.objectId).map(p=>p.objectId));
+  const shownObjs=projStatusFilter?objs.filter(o=>matchObjIds.has(o.id)):objs;
+  const loose=filtProjs.filter(p=>!p.objectId||!objs.some(o=>o.id===p.objectId));
+  if(!shownObjs.length&&!loose.length){
+    h+=emptyState('M9 11l3 3 8-8M4 12v7a1 1 0 001 1h14','Нет проектов с таким статусом.');
+    box.innerHTML=h;return;
+  }
+  if(shownObjs.length){h+=`<div class="proj-grid">`;shownObjs.forEach(o=>h+=objectCard(o));h+=`</div>`;}
   if(loose.length){
-    if(objs.length)h+=`<div class="sec-title">Отдельные проекты</div>`;
+    if(shownObjs.length)h+=`<div class="sec-title">Отдельные проекты</div>`;
     h+=`<div class="proj-grid">`;loose.forEach(p=>h+=projectCard(p));h+=`</div>`;
   }
   box.innerHTML=h;
@@ -793,7 +822,13 @@ function projectCard(p){
   const taskN=(p.tasks||[]).filter(t=>!t.done).length;
   const shopN=(p.shop||[]).filter(s=>!s.done).length;
   const f=fin(p);
-  return `<div class="card proj-card" onclick="openProj('${p.id}')">
+  return `<div class="proj-card-wrap">
+    <div class="proj-card-actions">
+      ${p.phone?`<button class="a-call" onclick="callProject('${p.id}')">📞<span>Звонок</span></button>`:''}
+      <button class="a-stage" onclick="quickAddStage('${p.id}')">🔧<span>Этап</span></button>
+      <button class="a-archive" onclick="archiveProject('${p.id}')">🗄<span>Архив</span></button>
+    </div>
+    <div class="card proj-card" onclick="openProj('${p.id}')">
     <div class="proj-top"><div><div class="proj-name">${esc(p.name)}</div>
     ${(p.client||p.phone)?`<div class="proj-desc">${esc([p.client,p.phone].filter(Boolean).join(' · '))}</div>`:(p.desc?`<div class="proj-desc">${esc(truncate(p.desc,70))}</div>`:'')}
     </div>${badge}</div>
@@ -805,8 +840,63 @@ function projectCard(p){
       ${p.deadline?`<span class="meta-pill">📅 <b>${fmtDate(p.deadline)}</b></span>`:''}
       ${taskN?`<span class="meta-pill">✓ <b>${taskN}</b> задач</span>`:''}
       ${shopN?`<span class="meta-pill">🛒 <b>${shopN}</b> купить</span>`:''}
-    </div></div>`;
+    </div></div></div>`;
 }
+function callProject(pid){const p=DB.projects.find(x=>x.id===pid);if(p&&p.phone)window.location.href='tel:'+p.phone.replace(/\s+/g,'');}
+function quickAddStage(pid){
+  const p=DB.projects.find(x=>x.id===pid);if(!p)return;
+  const n=(prompt('Название этапа:')||'').trim();if(!n)return;
+  p.stages=p.stages||[];p.stages.push({name:n,date:'',done:false});save();render();
+}
+/* ---------- свайп по карточке проекта (быстрые действия) ---------- */
+(function(){
+  let wrapEl=null,frontEl=null,sx=0,sy=0,dx=0,revealW=0,active=false,moved=false;
+  function closeSwipeEl(w){w.classList.remove('swiped');const f=w.querySelector('.proj-card');if(f)f.style.transform='';}
+  window.__closeAllSwipes=function(){document.querySelectorAll('.proj-card-wrap.swiped').forEach(closeSwipeEl);};
+  document.addEventListener('pointerdown',e=>{
+    const wrap=e.target.closest&&e.target.closest('.proj-card-wrap');
+    document.querySelectorAll('.proj-card-wrap.swiped').forEach(w=>{if(w!==wrap)closeSwipeEl(w);});
+    if(!wrap)return;
+    const front=wrap.querySelector('.proj-card');const actions=wrap.querySelector('.proj-card-actions');
+    if(!front||!actions)return;
+    let w=0;actions.querySelectorAll('button').forEach(b=>w+=b.offsetWidth);
+    wrapEl=wrap;frontEl=front;revealW=w||0;
+    sx=e.clientX;sy=e.clientY;dx=0;active=true;moved=false;
+    frontEl.style.transition='none';
+  });
+  document.addEventListener('pointermove',e=>{
+    if(!active||!wrapEl)return;
+    const ddx=e.clientX-sx,ddy=e.clientY-sy;
+    if(!moved){
+      if(Math.abs(ddx)<6&&Math.abs(ddy)<6)return;
+      if(Math.abs(ddy)>=Math.abs(ddx)){active=false;return;}
+      moved=true;
+    }
+    const base=wrapEl.classList.contains('swiped')?-revealW:0;
+    dx=Math.min(0,Math.max(-revealW,base+ddx));
+    frontEl.style.transform=`translateX(${dx}px)`;
+    e.preventDefault();
+  },{passive:false});
+  function endGesture(){
+    if(!active||!wrapEl)return;
+    active=false;frontEl.style.transition='';
+    if(moved){
+      if(dx<-revealW/2){frontEl.style.transform=`translateX(${-revealW}px)`;wrapEl.classList.add('swiped');}
+      else{frontEl.style.transform='';wrapEl.classList.remove('swiped');}
+    }
+    wrapEl=null;frontEl=null;
+  }
+  document.addEventListener('pointerup',endGesture);
+  document.addEventListener('pointercancel',endGesture);
+  document.addEventListener('click',e=>{
+    const wrap=e.target.closest&&e.target.closest('.proj-card-wrap');
+    if(!wrap)return;
+    if(moved){e.preventDefault();e.stopPropagation();moved=false;return;}
+    if(wrap.classList.contains('swiped')&&!e.target.closest('.proj-card-actions')){
+      e.preventDefault();e.stopPropagation();closeSwipeEl(wrap);
+    }
+  },true);
+})();
 
 /* ---------- ОБЪЕКТЫ (группировка проектов) ---------- */
 function activeObjects(){return (DB.objects||[]).filter(o=>!o.archived);}
