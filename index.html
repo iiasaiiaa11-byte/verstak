@@ -1020,9 +1020,9 @@ function unitsCard(p){
   const arr=p.units||[];
   let h=`<div class="sec-title">Мебель в заказе</div><div class="card">`;
   if(arr.length){
-    arr.forEach(u=>{h+=`<div class="item">
+    arr.forEach((u,i)=>{h+=`<div class="item">
       <div class="item-body"><div class="item-txt">📦 ${esc(u.name)}</div>${u.note?`<div class="item-sub">${esc(u.note)}</div>`:''}</div>
-      <button class="del" onclick="delUnit('${p.id}','${u.id}')">×</button></div>`;});
+      <button class="del" onclick="delUnit('${p.id}',${i})">×</button></div>`;});
   }else{
     h+=`<div style="color:var(--muted);font-size:13px;text-align:center;padding:6px">Пока ничего не добавлено</div>`;
   }
@@ -1039,7 +1039,7 @@ function unitsCard(p){
 }
 function addUnit(id){const p=DB.projects.find(x=>x.id===id);const n=$('unitName').value.trim();if(!n)return;p.units=p.units||[];p.units.push({id:uid(),name:n,note:''});save();render();}
 function addUnitQuick(id,name){const p=DB.projects.find(x=>x.id===id);p.units=p.units||[];p.units.push({id:uid(),name:name,note:''});save();render();}
-function delUnit(pid,uId){const p=DB.projects.find(x=>x.id===pid);p.units=(p.units||[]).filter(x=>x.id!==uId);save();render();}
+function delUnit(pid,i){const p=DB.projects.find(x=>x.id===pid);if(p&&p.units)p.units.splice(i,1);save();render();}
 function fmtFull(d){if(!d)return'';const[y,m,da]=d.split('-');return da+'.'+m+'.'+y;}
 /* ---------- Авто-КП «под ключ»: язык документа + перевод (Claude Haiku) ---------- */
 const REPORT_I18N={
@@ -2262,12 +2262,11 @@ function applyAiResult(pid){
   const kp=($('aiKp')&&$('aiKp').value)||d.kpText||''; // читаем ДО возможной смены sheet
   const apply=(tp)=>{
     const p=DB.projects.find(x=>x.id===tp);if(!p)return;
-    p.units=p.units||[];(d.items||[]).forEach(i=>{if(i&&i.name)p.units.push({name:i.qty?`${i.name} (${i.qty})`:i.name});});
     p.shop=p.shop||[];(d.materials||[]).forEach(m=>{if(m&&m.name)p.shop.push({id:uid(),txt:m.name,qty:m.qty||'',price:0,supplier:'',note:'из AI-расчёта',done:false});});
     if(d.estimate&&+d.estimate.total>0&&!p.price)p.price=Math.round(+d.estimate.total);
     if(kp)p.kpText=kp;
     save();closeSheet();openProject=p.id;TAB='projects';showSettings=showClients=showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();
-    alert('Добавлено в проект «'+p.name+'»: позиции, закупки, смета и текст КП. Проверь и поправь вручную.');
+    alert('Добавлено в проект «'+p.name+'»: закупки, смета и текст КП. «Мебель в заказе» AI больше не заполняет — добавь вручную во вкладке «О заказе».');
   };
   if(pid)apply(pid);else pickProjectThen(apply);
 }
