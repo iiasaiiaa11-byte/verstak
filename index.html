@@ -2317,17 +2317,30 @@ function renderAiResult(pid,d){
     ${items?`<div class="card"><div class="fin-sub" style="margin-bottom:4px">Позиции</div>${items}</div>`:''}
     ${mats?`<div class="card"><div class="fin-sub" style="margin-bottom:4px">Закупить</div>${mats}</div>`:''}
     ${stages?`<div class="chips" style="margin-top:0">${stages}</div>`:''}
-    <div class="card" style="margin-top:10px"><div class="fin-sub" style="margin-bottom:4px">Смета (ориентировочно)</div>${bd}<div style="display:flex;justify-content:space-between;font-weight:800;margin-top:6px;border-top:1px solid var(--line);padding-top:6px">Итого<span>${money((d.estimate&&d.estimate.total)||0)}</span></div>${d.estimate&&d.estimate.disclaimer?`<div class="fin-sub" style="margin-top:6px">${esc(d.estimate.disclaimer)}</div>`:''}</div>
+    <div class="card" style="margin-top:10px"><div class="fin-sub" style="margin-bottom:4px">Смета (ориентировочно)</div>${bd}
+      <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-top:1px solid var(--line);margin-top:6px"><span>Мебель (без монтажа)</span><b>${money((d.estimate&&d.estimate.total)||0)}</b></div>
+      <label class="f" style="margin-top:2px">Монтаж — AI предложил, можно изменить</label>
+      <input type="number" inputmode="decimal" id="aiInstall" value="${(d.estimate&&d.estimate.installation)||''}" placeholder="0" oninput="updateAiTotal()">
+      <div style="display:flex;justify-content:space-between;font-weight:800;margin-top:10px;border-top:1px solid var(--line);padding-top:6px">Итого<span id="aiTotalOut">${money(((d.estimate&&d.estimate.total)||0)+((d.estimate&&d.estimate.installation)||0))}</span></div>
+      ${d.estimate&&d.estimate.disclaimer?`<div class="fin-sub" style="margin-top:6px">${esc(d.estimate.disclaimer)}</div>`:''}</div>
     ${d.kpText?`<label class="f">Текст КП (можно править)</label><textarea id="aiKp" style="min-height:130px">${esc(d.kpText)}</textarea>`:''}
     <button class="btn" style="width:100%;margin-top:10px" onclick="applyAiResult('${pid}')">➕ Применить к проекту</button>`;
+}
+function updateAiTotal(){
+  const d=window._aiData;if(!d)return;
+  const inst=+($('aiInstall')&&$('aiInstall').value)||0;
+  const total=(+(d.estimate&&d.estimate.total)||0)+inst;
+  const out=$('aiTotalOut');if(out)out.textContent=money(total);
 }
 function applyAiResult(pid){
   const d=window._aiData;if(!d)return;
   const kp=($('aiKp')&&$('aiKp').value)||d.kpText||''; // читаем ДО возможной смены sheet
+  const install=+($('aiInstall')&&$('aiInstall').value)||0; // читаем ДО возможной смены sheet
   const apply=(tp)=>{
     const p=DB.projects.find(x=>x.id===tp);if(!p)return;
     p.shop=p.shop||[];(d.materials||[]).forEach(m=>{if(m&&m.name)p.shop.push({id:uid(),txt:m.name,qty:m.qty||'',price:0,supplier:'',note:'из AI-расчёта',done:false});});
-    if(d.estimate&&+d.estimate.total>0&&!p.price)p.price=Math.round(+d.estimate.total);
+    const totalWithInstall=(+(d.estimate&&d.estimate.total)||0)+install;
+    if(totalWithInstall>0&&!p.price)p.price=Math.round(totalWithInstall);
     if(kp)p.kpText=kp;
     save();closeSheet();openProject=p.id;projTab='order';TAB='projects';showSettings=showClients=showArchive=false;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab==='projects'));render();
     alert('Добавлено в проект «'+p.name+'»: закупки, смета и текст КП. «Мебель в заказе» AI больше не заполняет — добавь вручную во вкладке «Инфо».');
