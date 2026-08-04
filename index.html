@@ -2666,6 +2666,10 @@ function sheetStockItem(id){
       <div><label class="f">Остаток</label><input id="stQty" value="${s?esc(s.qty||''):''}" placeholder="3" inputmode="decimal"></div>
       <div><label class="f">Единица</label><select id="stUnit">${STOCK_UNITS.map(u=>`<option ${s&&s.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
     </div>
+    ${s?`<div class="row" style="margin:2px 0 10px">
+      <button type="button" class="btn btn-ghost btn-sm" style="flex:1" onclick="stockAdjustQty('${s.id}',-1)">➖ Списать</button>
+      <button type="button" class="btn btn-ghost btn-sm" style="flex:1" onclick="stockAdjustQty('${s.id}',1)">➕ Вернуть</button>
+    </div>`:''}
     <label class="f">Цена за единицу (${curSym()})</label>
     <input id="stPrice" value="${s?esc(s.price||''):''}" placeholder="0" inputmode="decimal">
     <label class="f">Заметка</label>
@@ -2683,6 +2687,16 @@ function saveStockItem(id){
   save();closeSheet();render();
 }
 function delStockItem(id){if(!confirm('Удалить позицию со склада?'))return;DB.stock=(DB.stock||[]).filter(x=>x.id!==id);save();closeSheet();render();}
+function stockAdjustQty(id,sign){
+  const s=(DB.stock||[]).find(x=>x.id===id);if(!s)return;
+  const raw=prompt(sign>0?'Сколько вернуть на склад?':'Сколько списать со склада?');
+  const n=parseFloat((raw||'').replace(',','.'));
+  if(!n||n<=0)return;
+  const cur=parseFloat(s.qty)||0;
+  let next=cur+sign*n;if(next<0)next=0;
+  s.qty=(Math.round(next*100)/100).toString();
+  save();render();sheetStockItem(id);
+}
 
 /* ---------- Сканирование накладной (Claude vision) → позиции на склад ---------- */
 const INVOICE_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/aiScanInvoice';
