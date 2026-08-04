@@ -499,6 +499,22 @@ function setSyncBadge(state){
 }
 function dbItemCount(d){d=d||{};return (d.projects||[]).length;}
 function dbIsEmpty(d){d=d||{};return !(d.projects&&d.projects.length)&&!(d.objects&&d.objects.length)&&!(d.tasks&&d.tasks.length)&&!(d.shop&&d.shop.length)&&!(d.reminders&&d.reminders.length);}
+function setLastSynced(t){
+  lastAppliedUpd=t;
+  if(cloudUid){try{localStorage.setItem('verstak_last_sync_'+cloudUid,String(t));}catch(e){}}
+}
+/* Автовыбор стороны при первом снапшоте — без диалога-вопроса на каждый запуск.
+   lastSynced — момент последней успешной синхронизации ЭТОГО устройства (переживает перезапуск, хранится в localStorage).
+   Если в облаке ничего не менялось с тех пор — шлём локальные правки. Если облако новее — подтягиваем его.
+   Если истории синка на этом устройстве ещё нет (первый вход) — выбираем сторону с бОльшим количеством данных, чтобы не потерять их. */
+function resolveFirstSync(localDB,v,lastSynced){
+  if(!v)return dbIsEmpty(localDB)?'none':'push';
+  if(dbIsEmpty(localDB))return 'apply';
+  if(lastSynced&&(v._updated||0)<=lastSynced)return 'push';
+  if(lastSynced)return 'apply';
+  const lc=dbItemCount(localDB),rc=dbItemCount(v.data);
+  return rc>=lc?'apply':'push';
+}
 
 function initSync(){
   if(typeof firebase==='undefined'||!window.firebaseConfig){setSyncBadge('off');return;}
@@ -529,6 +545,7 @@ function doLogin(){
 function skipLogin(){hideLogin();setSyncBadge('off');}
 function startCloudSync(uid){
   cloudUid=uid;syncReady=true;setSyncBadge('on');
+  try{lastAppliedUpd=+(localStorage.getItem('verstak_last_sync_'+uid)||0);}catch(e){lastAppliedUpd=0;}
   refreshPushSub();
   cloudRef=firebase.database().ref('verstak/'+uid);
   firebase.database().ref('.info/connected').on('value',s=>{if(syncReady)setSyncBadge(s.val()?'on':'saving');});
@@ -536,21 +553,18 @@ function startCloudSync(uid){
     const v=snap.val();
     if(firstSnapshot){
       firstSnapshot=false;
-      if(!v){if(!dbIsEmpty(DB))pushNow();return;}
-      if(dbIsEmpty(DB)){applyRemote(v);return;}
-      const lc=dbItemCount(DB),rc=dbItemCount(v.data);
-      const useCloud=confirm('Синхронизация подключена.\n\nНа этом устройстве: '+lc+' проект(ов).\nВ облаке: '+rc+' проект(ов).\n\nОК — загрузить ИЗ ОБЛАКА (заменит данные на этом устройстве).\nОтмена — отправить данные ЭТОГО устройства в облако.');
-      if(useCloud)applyRemote(v);else pushNow();
+      const action=resolveFirstSync(DB,v,lastAppliedUpd);
+      if(action==='apply')applyRemote(v);else if(action==='push')pushNow();
       return;
     }
     if(!v)return;
-    if(v._device===myDevice){lastAppliedUpd=Math.max(lastAppliedUpd,v._updated||0);return;}
+    if(v._device===myDevice){setLastSynced(Math.max(lastAppliedUpd,v._updated||0));return;}
     if((v._updated||0)>lastAppliedUpd)applyRemote(v);
   });
 }
 function applyRemote(v){
   DB=normalizeDB(v.data||{});
-  lastAppliedUpd=v._updated||Date.now();
+  setLastSynced(v._updated||Date.now());
   saveLocalOnly();
   if(openProject){openProject=DB.projects.find(p=>p.id===openProject.id)||null;}
   applySettings();
@@ -566,7 +580,7 @@ function scheduleCloudPush(){
 function pushNow(){
   if(!cloudRef)return;
   clearTimeout(pushTimer);
-  const upd=Date.now();lastAppliedUpd=upd;setSyncBadge('saving');
+  const upd=Date.now();setLastSynced(upd);setSyncBadge('saving');
   cloudRef.set({data:DB,_updated:upd,_device:myDevice})
     .then(()=>setSyncBadge('on'))
     .catch(e=>{console.log('push error',e);setSyncBadge('saving');});
