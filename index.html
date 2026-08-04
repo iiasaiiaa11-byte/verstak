@@ -2182,7 +2182,7 @@ function applySettings(){
   const lg=document.querySelector('.login-logo');if(lg)lg.textContent='▰ '+wsName();
 }
 let _setScrollReset=true;
-function openSettings(){_setScrollReset=true;showSettings=true;openProject=null;openObject=null;showArchive=false;showClients=false;cliView=null;render();}
+function openSettings(){_setScrollReset=true;showSettings=true;openProject=null;openObject=null;showArchive=false;showClients=false;cliView=null;render();loadTeamCache();}
 function renderSettings(){
   $('subtitle').textContent='настройки';
   const _el=$('content');const _sc=(_setScrollReset||!_el)?0:_el.scrollTop;_setScrollReset=false;
@@ -2229,6 +2229,8 @@ function renderSettings(){
     <div class="card">`;
   supList().forEach((sup,i)=>{h+=`<div class="money-row"><div style="flex:1;cursor:pointer" onclick="renameSupplier(${i})"><div class="item-txt">${esc(sup)}</div></div><button class="del" onclick="delSupplier(${i})">×</button></div>`;});
   h+=`</div><button class="btn btn-ghost btn-sm" style="width:100%" onclick="addSupplier()">+ Добавить поставщика</button>
+
+    ${renderTeamSection()}
 
     <div class="sec-title">Цены для AI-расчёта</div>
     <div class="card">
@@ -2288,6 +2290,120 @@ async function syncCalendar(){
 function addSupplier(){const n=prompt('Название поставщика:','');if(n&&n.trim()){const s=stg();s.suppliers=supList().slice();s.suppliers.push(n.trim());save();renderSettings();}}
 function renameSupplier(i){const list=supList();const n=prompt('Название поставщика:',list[i]);if(n===null)return;const s=stg();s.suppliers=list.slice();if(n.trim())s.suppliers[i]=n.trim();save();renderSettings();}
 function delSupplier(i){const s=stg();s.suppliers=supList().slice();s.suppliers.splice(i,1);save();renderSettings();}
+
+/* ---------- Команда: сотрудники с доступом к отдельным проектам (этап 1 — только сторона владельца) ---------- */
+const TEAM_CREATE_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/teamCreateMember';
+const TEAM_REMOVE_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/teamRemoveMember';
+let _teamCache=[];
+function loadTeamCache(){
+  if(!cloudUid||typeof firebase==='undefined')return;
+  firebase.database().ref('verstakTeam/'+cloudUid+'/members').once('value').then(snap=>{
+    const v=snap.val()||{};
+    _teamCache=Object.keys(v).map(id=>({id,...v[id]}));
+    if(showSettings)renderSettings();
+  }).catch(()=>{});
+}
+function renderTeamSection(){
+  let h=`<div class="sec-title">Команда</div><div class="card">`;
+  if(!cloudUid){
+    h+=`<div style="color:var(--muted);font-size:13px;text-align:center;padding:6px">Доступно после входа в синхронизацию (значок облака)</div></div>`;
+    return h;
+  }
+  if(!_teamCache.length){
+    h+=`<div style="color:var(--muted);font-size:13px;text-align:center;padding:6px">Пока никого не добавили</div>`;
+  }else{
+    _teamCache.forEach(m=>{
+      h+=`<div class="money-row" style="cursor:pointer" onclick="openTeamMemberSheet('${m.id}')">
+        <div style="flex:1;min-width:0">
+          <div class="item-txt">${esc(m.name)}${m.active===false?' <span style="color:var(--muted);font-weight:400">(выключен)</span>':''}</div>
+          <div class="item-sub">${esc(m.email)} · ${(m.projectIds||[]).length} проект(ов)</div>
+        </div>
+      </div>`;
+    });
+  }
+  h+=`</div><button class="btn btn-ghost btn-sm" style="width:100%" onclick="openAddTeamMember()">+ Добавить сотрудника</button>`;
+  return h;
+}
+function openAddTeamMember(){
+  if(!cloudUid){alert('Сначала войдите в синхронизацию (значок облака).');return;}
+  openSheet(`<h2>Пригласить сотрудника</h2>
+    <div class="fin-sub" style="margin-bottom:10px">Сотрудник получит свой отдельный вход и сможет видеть и редактировать только те проекты, которые ты ему назначишь — без доступа к деньгам.</div>
+    <label class="f">Имя</label>
+    <input id="tmName" placeholder="Напр. Иван — монтажник">
+    <label class="f">Email</label>
+    <input id="tmEmail" type="email" placeholder="ivan@example.com" autocapitalize="off" spellcheck="false">
+    <div id="tmErr" class="login-err"></div>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Отмена</button><button class="btn" onclick="createTeamMember()">Пригласить</button></div>`);
+  setTimeout(()=>{const e=$('tmName');if(e)e.focus();},100);
+}
+async function createTeamMember(){
+  const name=($('tmName').value||'').trim();
+  const email=($('tmEmail').value||'').trim();
+  const err=$('tmErr');
+  if(!name){err.textContent='Введи имя';return;}
+  if(!email){err.textContent='Введи email';return;}
+  err.textContent='Приглашаем…';
+  try{
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(TEAM_CREATE_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({email,name})});
+    const d=await r.json().catch(()=>({error:'Пустой ответ'}));
+    if(!r.ok||d.error){err.textContent=d.error||('Ошибка: HTTP '+r.status);return;}
+    _teamCache.push({id:d.memberUid,email:d.email,name,projectIds:[],active:true,addedAt:Date.now()});
+    openSheet(`<h2>Сотрудник добавлен</h2>
+      <div class="fin-sub" style="margin-bottom:10px">«${esc(name)}» добавлен(а). Перешли эту ссылку сотруднику (например в WhatsApp) — по ней он сам задаст себе пароль и потом войдёт под своим email (${esc(d.email)}).</div>
+      <input readonly value="${esc(d.resetLink)}" onclick="this.select()" style="width:100%;font-size:12px">
+      <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="if(navigator.clipboard)navigator.clipboard.writeText('${esc(d.resetLink)}');this.textContent='Скопировано ✓'">Скопировать ссылку</button>
+      <div class="fin-sub" style="margin-top:12px">Дальше отметь, к каким проектам у него будет доступ.</div>
+      <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet();renderSettings()">Закрыть</button><button class="btn" onclick="openTeamMemberSheet('${d.memberUid}')">Назначить проекты</button></div>`);
+  }catch(e){err.textContent='Ошибка: '+(e.message||'');}
+}
+function openTeamMemberSheet(memberUid){
+  const m=_teamCache.find(x=>x.id===memberUid);if(!m)return;
+  const aps=activeProjects();
+  const ids=m.projectIds||[];
+  openSheet(`<h2>${esc(m.name)}</h2>
+    <div class="fin-sub" style="margin-bottom:10px">${esc(m.email)}</div>
+    <label class="f">Доступ</label>
+    <div class="chips" style="margin-bottom:10px">
+      <button type="button" class="chip ${m.active!==false?'on':''}" onclick="setTeamMemberActive('${memberUid}',true)">Включён</button>
+      <button type="button" class="chip ${m.active===false?'on':''}" onclick="setTeamMemberActive('${memberUid}',false)">Выключен</button>
+    </div>
+    <label class="f">Проекты с доступом</label>
+    <div class="card">
+      ${aps.length?aps.map(p=>`<div class="item" style="cursor:pointer" onclick="toggleTeamMemberProject('${memberUid}','${p.id}')">
+        <div class="cbx ${ids.includes(p.id)?'on':''}">${ids.includes(p.id)?'<svg viewBox="0 0 24 24"><path d="M5 12l5 5L20 7"/></svg>':''}</div>
+        <div class="item-body"><div class="item-txt">${esc(p.name)}</div></div>
+      </div>`).join(''):'<div style="color:var(--muted);font-size:13px;text-align:center;padding:6px">Нет активных проектов</div>'}
+    </div>
+    <button class="btn btn-ghost act-btn" style="margin-top:14px;color:var(--red)" onclick="removeTeamMember('${memberUid}')">Удалить сотрудника</button>
+    <div class="sheet-actions"><button class="btn" onclick="closeSheet();renderSettings()">Готово</button></div>`);
+}
+function setTeamMemberActive(memberUid,active){
+  const m=_teamCache.find(x=>x.id===memberUid);if(!m)return;
+  m.active=active;
+  firebase.database().ref('verstakTeam/'+cloudUid+'/members/'+memberUid+'/active').set(active);
+  openTeamMemberSheet(memberUid);
+}
+function toggleTeamMemberProject(memberUid,projectId){
+  const m=_teamCache.find(x=>x.id===memberUid);if(!m)return;
+  m.projectIds=m.projectIds||[];
+  const i=m.projectIds.indexOf(projectId);
+  if(i>=0)m.projectIds.splice(i,1);else m.projectIds.push(projectId);
+  firebase.database().ref('verstakTeam/'+cloudUid+'/members/'+memberUid+'/projectIds').set(m.projectIds);
+  openTeamMemberSheet(memberUid);
+}
+async function removeTeamMember(memberUid){
+  const m=_teamCache.find(x=>x.id===memberUid);if(!m)return;
+  if(!confirm('Удалить сотрудника «'+m.name+'»? Он потеряет доступ, аккаунт будет удалён.'))return;
+  try{
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(TEAM_REMOVE_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({memberUid})});
+    const d=await r.json().catch(()=>({error:'Пустой ответ'}));
+    if(!r.ok||d.error){alert('Не удалось удалить: '+(d.error||('HTTP '+r.status)));return;}
+    _teamCache=_teamCache.filter(x=>x.id!==memberUid);
+    closeSheet();renderSettings();
+  }catch(e){alert('Ошибка: '+(e.message||''));}
+}
 
 /* ---------- КЛИЕНТЫ (справочник) ---------- */
 function ckey(n,p){return (n||'').trim().toLowerCase()+'|'+(p||'').trim();}
