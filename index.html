@@ -744,16 +744,32 @@ function dashboardBlock(){
   });
   (DB.reminders||[]).forEach(r=>{if(r.date)dls.push({date:r.date,txt:r.txt||'',ic:'🔔'});});
   dls.sort((a,b)=>a.date<b.date?-1:(a.date>b.date?1:0));
-  const soon=dls.slice(0,3);
+  const today=todayISO();
+  const urgent=dls.filter(d=>d.date<=today).slice(0,8);
+  const soon=dls.filter(d=>d.date>today).slice(0,3);
+  const dlRow=d=>{
+    const over=d.date<today,isToday=d.date===today;
+    const tag=over?'просроч.':(isToday?'сегодня':'');
+    const col=over?'var(--red)':(isToday?'var(--amber)':'var(--muted)');
+    return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:3px 0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.ic} ${esc(d.txt)}</span><span style="flex-shrink:0;color:${col}">${fmtDate(d.date)}${tag?' · '+tag:''}</span></div>`;
+  };
   let h=`<div class="sec-title">Обзор</div><div class="card" style="margin-bottom:12px">
     <div class="proj-meta" style="margin-bottom:2px">
       ${toReceive>0?`<span class="meta-pill">💶 К получению: <b>${money(toReceive)}</b></span>`:''}
       <span class="meta-pill">📦 <b>${aps.length}</b> в работе</span>
       ${buyN?`<span class="meta-pill" onclick="go('shop')" style="cursor:pointer">🛒 купить <b>${buyN}</b></span>`:''}
     </div>`;
+  if(urgent.length){
+    const hasToday=urgent.some(d=>d.date===today),hasOver=urgent.some(d=>d.date<today);
+    const label=hasOver&&!hasToday?'🔥 Просрочено':(hasOver?'🔥 Сегодня и просрочено':'🔥 Сегодня');
+    h+=`<div class="fin-sub" style="margin:8px 0 2px;color:var(--amber);font-weight:600">${label}</div>`;
+    urgent.forEach(d=>h+=dlRow(d));
+  }else{
+    h+=`<div class="fin-sub" style="margin:8px 0 2px;color:var(--green)">✓ На сегодня ничего не горит</div>`;
+  }
   if(soon.length){
     h+=`<div class="fin-sub" style="margin:8px 0 2px">Ближайшие сроки</div>`;
-    soon.forEach(d=>{const over=d.date<todayISO();h+=`<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:3px 0"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.ic} ${esc(d.txt)}</span><span style="flex-shrink:0;${over?'color:var(--red)':'color:var(--muted)'}">${fmtDate(d.date)}${over?' · просроч.':''}</span></div>`;});
+    soon.forEach(d=>h+=dlRow(d));
   }
   h+=`</div>`;
   return h;
