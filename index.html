@@ -2354,10 +2354,15 @@ async function createTeamMember(){
     catch(e){
       try{await firebase.auth().sendPasswordResetEmail(d.email);}catch(e2){emailSent=false;} // если continueUrl не разрешён в Firebase — шлём без него, лишь бы письмо ушло
     }
+    const appUrl='https://iiasaiiaa11-byte.github.io/verstak/';
     openSheet(`<h2>Сотрудник добавлен</h2>
-      <div class="fin-sub" style="margin-bottom:10px">${emailSent?`На ${esc(d.email)} отправлено письмо со ссылкой. Сотруднику нужно: открыть письмо → перейти по ссылке → задать пароль → нажать «Продолжить» (вернёт на сайт ВЕРСТАК) → войти на обычном экране входа, указав email и только что заданный пароль. Если письма долго нет — проверьте папку «Спам», либо перешлите ссылку ниже вручную (например в WhatsApp).`:`Не удалось отправить письмо — перешлите эту ссылку сотруднику вручную (например в WhatsApp). После перехода по ссылке и установки пароля нужно будет отдельно открыть сайт ВЕРСТАК и войти, указав email ${esc(d.email)} и заданный пароль.`}</div>
+      <div class="fin-sub" style="margin-bottom:10px">${emailSent?`На ${esc(d.email)} отправлено письмо со ссылкой (1). Сотруднику нужно: открыть письмо → перейти по ссылке (1) → задать пароль → затем перейти по второй ссылке (2) ниже — она откроет сам сайт ВЕРСТАК → войти на экране входа, указав email и только что заданный пароль. Если письма долго нет — проверьте папку «Спам», либо перешлите обе ссылки вручную (например в WhatsApp).`:`Не удалось отправить письмо — перешлите обе ссылки сотруднику вручную (например в WhatsApp): сначала (1) для установки пароля, затем (2) — вход на сайт ВЕРСТАК, где нужно указать email ${esc(d.email)} и заданный пароль.`}</div>
+      <label class="f">1. Ссылка для установки пароля</label>
       <input readonly value="${esc(d.resetLink)}" onclick="this.select()" style="width:100%;font-size:12px">
-      <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="if(navigator.clipboard)navigator.clipboard.writeText('${esc(d.resetLink)}');this.textContent='Скопировано ✓'">Скопировать ссылку</button>
+      <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="if(navigator.clipboard)navigator.clipboard.writeText('${esc(d.resetLink)}');this.textContent='Скопировано ✓'">Скопировать ссылку (1)</button>
+      <label class="f" style="margin-top:12px">2. Ссылка на сам сайт ВЕРСТАК (для входа)</label>
+      <input readonly value="${esc(appUrl)}" onclick="this.select()" style="width:100%;font-size:12px">
+      <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="if(navigator.clipboard)navigator.clipboard.writeText('${esc(appUrl)}');this.textContent='Скопировано ✓'">Скопировать ссылку (2)</button>
       <div class="fin-sub" style="margin-top:12px">Дальше отметь, к каким проектам у него будет доступ.</div>
       <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet();renderSettings()">Закрыть</button><button class="btn" onclick="openTeamMemberSheet('${d.memberUid}')">Назначить проекты</button></div>`);
   }catch(e){err.textContent='Ошибка: '+(e.message||'');}
