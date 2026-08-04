@@ -488,6 +488,8 @@ function save(){const ok=saveLocalOnly();scheduleCloudPush();return ok;}
 
 /* ---------- облачная синхронизация (Firebase Realtime DB) ---------- */
 let cloudRef=null, cloudUid=null, lastAppliedUpd=0, firstSnapshot=true, pushTimer=null, syncReady=false;
+let teamMode=null; // {name, active} — если вошли под аккаунтом сотрудника (не владельца)
+const TEAM_GET_PROJECTS_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/teamGetProjects';
 const myDevice=(()=>{let d;try{d=localStorage.getItem('verstak_device');}catch(e){}if(!d){d=Date.now().toString(36)+Math.random().toString(36).slice(2,8);try{localStorage.setItem('verstak_device',d);}catch(e){}}return d;})();
 
 function setSyncBadge(state){
@@ -523,8 +525,8 @@ function initSync(){
     const auth=firebase.auth();
     auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
     auth.onAuthStateChanged(u=>{
-      if(u){hideLogin();startCloudSync(u.uid);}
-      else{setSyncBadge('noauth');showLogin();}
+      if(u){hideLogin();teamAwareLogin(u.uid);}
+      else{teamMode=null;setSyncBadge('noauth');showLogin();}
     });
   }catch(e){console.log('sync init error',e);setSyncBadge('off');}
 }
@@ -587,9 +589,54 @@ function pushNow(){
 }
 function syncMenu(){
   if(!cloudUid){showLogin();return;}
+  if(teamMode){teamLogoutConfirm();return;}
   if(confirm('Синхронизация включена ✓\n\nДанные автоматически обновляются на всех устройствах.\n\nОК — выйти из аккаунта на этом устройстве (данные останутся локально).')){
     firebase.auth().signOut().then(()=>{cloudRef=null;cloudUid=null;syncReady=false;firstSnapshot=true;setSyncBadge('noauth');showLogin();});
   }
+}
+
+/* ---------- Команда: вход сотрудника (только назначенные проекты, без денег, серверное ограничение) ---------- */
+function applyTeamNavRestrictions(hide){
+  const b=document.querySelector('nav button[data-tab="ai"]');if(b)b.style.display=hide?'none':'';
+}
+async function teamAwareLogin(uid){
+  try{
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(TEAM_GET_PROJECTS_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token}});
+    const d=await r.json().catch(()=>({isTeamMember:false}));
+    if(d && d.isTeamMember){
+      if(!d.active){
+        teamMode={name:d.name||'',active:false};
+        applyTeamNavRestrictions(true);
+        setSyncBadge('off');
+        render();
+        return;
+      }
+      teamMode={name:d.name||'',active:true};
+      cloudUid=uid;cloudRef=null;syncReady=false;
+      DB=normalizeDB({projects:d.projects||[],objects:d.objects||[]});
+      applyTeamNavRestrictions(true);
+      applySettings();
+      TAB='projects';openProject=null;openObject=null;showSettings=false;showClients=false;showArchive=false;projTab='order';
+      setSyncBadge('on');
+      const badge=document.getElementById('syncBadge');if(badge)badge.title='Сотрудник: '+(teamMode.name||'')+' · только просмотр назначенных проектов';
+      render();
+      return;
+    }
+  }catch(e){console.log('team check failed',e);}
+  teamMode=null;applyTeamNavRestrictions(false);
+  startCloudSync(uid);
+}
+function teamRefresh(){if(cloudUid)teamAwareLogin(cloudUid);}
+function teamLogoutConfirm(){
+  if(confirm('Выйти из аккаунта сотрудника на этом устройстве?')){
+    firebase.auth().signOut().then(()=>{teamMode=null;cloudRef=null;cloudUid=null;syncReady=false;firstSnapshot=true;DB=normalizeDB({});applyTeamNavRestrictions(false);setSyncBadge('noauth');showLogin();render();});
+  }
+}
+function renderTeamDisabled(){
+  $('fab').style.display='none';
+  $('content').innerHTML=`<div class="empty" style="margin-top:60px"><p>🔒 Доступ временно отключён владельцем мастерской.<br>Обратитесь к владельцу, чтобы включить доступ обратно.</p></div>
+    <button class="btn btn-ghost" style="width:100%;margin-top:16px" onclick="teamLogoutConfirm()">🚪 Выйти</button>`;
 }
 /* ---------- push-уведомления о сроках (Web Push) ---------- */
 const VAPID_PUBLIC='BBSAWFNOSqNJr-sjzVH6b5MqGJxOcUS8hT7tHmS5rFWiiR2RA2hWhUAX9Z7aRokO3EVSWqcw63vivsRseLfcQkY';
@@ -715,6 +762,16 @@ function fin(p){
 function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;showSettings=false;showClients=false;cliView=null;projQuery='';stockQuery='';document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===t));render();}
 function openMainMenu(){
   const notifOn=('Notification' in window)&&Notification.permission==='granted';
+  if(teamMode&&teamMode.active){
+    openSheet(`<h2>☰ Меню</h2>
+      <div class="fin-sub" style="margin-bottom:14px">Вы вошли как сотрудник${teamMode.name?': '+esc(teamMode.name):''}. Доступны только назначенные вам проекты, без раздела «Деньги» — только просмотр.</div>
+      <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px" onclick="closeSheet();openArchive()">🗄 Завершённые проекты</button>
+      <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px" onclick="closeSheet();teamRefresh()">🔄 Обновить проекты</button>
+      <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px" onclick="closeSheet();enableNotifs()">🔔 Уведомления о сроках${notifOn?' · включены':''}</button>
+      <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px;color:var(--red)" onclick="closeSheet();teamLogoutConfirm()">🚪 Выйти</button>
+      <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Закрыть</button></div>`);
+    return;
+  }
   openSheet(`<h2>☰ Меню</h2>
     <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px" onclick="closeSheet();openSettings()">⚙️ Настройки</button>
     <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px" onclick="closeSheet();openClients()">👥 Клиенты</button>
@@ -726,11 +783,14 @@ function openMainMenu(){
 
 /* ---------- render router ---------- */
 function render(){
+  if(teamMode&&teamMode.active===false){renderTeamDisabled();return;}
+  const tm=!!(teamMode&&teamMode.active);
+  if(tm&&TAB==='ai')TAB='projects';
   if(showSettings){$('fab').style.display='none';renderSettings();return;}
   if(showClients){$('fab').style.display='none';if(cliView)renderClientDetail();else renderClients();return;}
   const archMode=showArchive&&!openProject;
   const openArchived=openProject&&(DB.projects.find(x=>x.id===openProject)||{}).archived;
-  const hideFab=archMode||openArchived;
+  const hideFab=archMode||openArchived||tm;
   $('fab').style.display = hideFab? 'none' : ((openProject||openObject)?'flex':((TAB==='calendar'||TAB==='calc'||TAB==='ai')?'none':'flex'));
   if(openProject){renderProjectDetail();return;}
   if(openObject){renderObjectDetail();return;}
@@ -852,11 +912,12 @@ function projectCard(p){
   const taskN=(p.tasks||[]).filter(t=>!t.done).length;
   const shopN=(p.shop||[]).filter(s=>!s.done).length;
   const f=fin(p);
+  const tm=!!(teamMode&&teamMode.active);
   return `<div class="proj-card-wrap">
     <div class="proj-card-actions">
       ${p.phone?`<button class="a-call" onclick="callProject('${p.id}')">📞<span>Звонок</span></button>`:''}
-      <button class="a-stage" onclick="quickAddStage('${p.id}')">🔧<span>Этап</span></button>
-      <button class="a-archive" onclick="archiveProject('${p.id}')">🗄<span>Архив</span></button>
+      ${tm?'':`<button class="a-stage" onclick="quickAddStage('${p.id}')">🔧<span>Этап</span></button>`}
+      ${tm?'':`<button class="a-archive" onclick="archiveProject('${p.id}')">🗄<span>Архив</span></button>`}
     </div>
     <div class="card proj-card" onclick="openProj('${p.id}')">
     <div class="proj-top"><div><div class="proj-name">${esc(p.name)}</div>
@@ -963,26 +1024,27 @@ function renderObjectDetail(){
   const o=(DB.objects||[]).find(x=>x.id===openObject);
   if(!o){openObject=null;return render();}
   $('subtitle').textContent='объект · квартира';
+  const tm=!!(teamMode&&teamMode.active);
   const ps=objProjects(o.id),f=objFin(o.id),dl=objDeadlines(o.id);
   let h=`<button class="back" onclick="openObject=null;render()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> К проектам</button>
     <div class="proj-name" style="font-size:23px">🏠 ${esc(o.name)}</div>
     ${(o.client||o.phone||o.address)?`<div class="proj-desc" style="margin-bottom:10px">${esc([o.client,o.phone,o.address].filter(Boolean).join(' · '))}</div>`:''}
-    <div class="fin-grid">
+    ${tm?'':`<div class="fin-grid">
       <div class="fin-box"><div class="fin-lbl">Сумма всех проектов</div><div class="fin-val">${money(f.price)}</div></div>
       <div class="fin-box"><div class="fin-lbl">Получено</div><div class="fin-val green">${money(f.income)}</div></div>
       <div class="fin-box"><div class="fin-lbl">Осталось получить</div><div class="fin-val ${f.remain>0?'amber':'green'}">${money(f.remain)}</div></div>
       <div class="fin-box"><div class="fin-lbl">Прибыль</div><div class="fin-val ${f.profit>=0?'green':'red'}">${money(f.profit)}</div></div>
-    </div>`;
+    </div>`}`;
   if(dl.length){
     h+=`<div class="sec-title">Ближайшие сроки</div><div class="card">`;
     dl.forEach(d=>h+=`<div class="money-row"><div style="flex:1"><div class="item-txt">${esc(d.txt)}</div><div class="item-sub">${fmtDate(d.date)}</div></div></div>`);
     h+=`</div>`;
   }
   h+=`<div class="sec-title">Проекты объекта</div>
-    <button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:10px" onclick="sheetProject('${o.id}')">+ Проект в этот объект</button>`;
+    ${tm?'':`<button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:10px" onclick="sheetProject('${o.id}')">+ Проект в этот объект</button>`}`;
   if(ps.length){h+=`<div class="proj-grid">`;ps.forEach(p=>h+=projectCard(p));h+=`</div>`;}
   else h+=emptyState('M3 7h18M3 12h18M3 17h18','В объекте пока нет проектов.<br>Нажми «+ Проект».');
-  h+=`<div class="sec-title">Объект</div>
+  if(!tm)h+=`<div class="sec-title">Объект</div>
     <button class="btn act-btn" onclick="objectReport('${o.id}')" style="margin-bottom:10px">📄 Отчёт по объекту (PDF)</button>
     <button class="btn btn-ghost act-btn" onclick="sheetObject('${o.id}')" style="margin-bottom:10px">✏️ Изменить объект</button>
     <button class="btn btn-ghost act-btn" onclick="delObject('${o.id}')" style="color:var(--red)">Удалить объект</button>`;
@@ -1089,8 +1151,10 @@ function unarchiveProject(id){
 function renderProjectDetail(){
   const p=DB.projects.find(x=>x.id===openProject);
   if(!p){openProject=null;return render();}
-  $('subtitle').textContent=p.archived?'завершённый проект · просмотр':'проект';
-  const ro=!!p.archived;
+  const tm=!!(teamMode&&teamMode.active);
+  if(tm&&projTab==='money')projTab='order';
+  $('subtitle').textContent=p.archived?'завершённый проект · просмотр':(tm?'проект · только просмотр':'проект');
+  const ro=!!p.archived||tm;
   const tabBtn=(k,l)=>`<button class="${projTab===k?'on':''}" onclick="projTab='${k}';render()">${l}</button>`;
   let body='';
   if(projTab==='order')body=infoView(p);
@@ -1101,11 +1165,11 @@ function renderProjectDetail(){
   else if(projTab==='measures')body=measuresView(p);
 
   $('content').innerHTML=`
-    <button class="back" onclick="backFromProject()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> ${ro?'К завершённым':(p.objectId?'К объекту':'К проектам')}</button>
+    <button class="back" onclick="backFromProject()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> ${p.archived?'К завершённым':(p.objectId?'К объекту':'К проектам')}</button>
     ${p.objectId?`<div class="proj-desc" style="color:var(--wood-2);margin-bottom:2px">🏠 ${esc(objName(p.objectId))}</div>`:''}
     <div class="proj-name" style="font-size:19px;margin-bottom:10px">${esc(p.name)}</div>
-    ${ro?`<div class="ro-banner">🔒 Проект завершён — только просмотр. Чтобы редактировать, верни его в работу (вкладка «Инфо»).</div>`:''}
-    <div class="tabs" style="margin-bottom:8px">${tabBtn('order','📋 Инфо')}${tabBtn('money','💰 Деньги')}</div>
+    ${p.archived?`<div class="ro-banner">🔒 Проект завершён — только просмотр. Чтобы редактировать, верни его в работу (вкладка «Инфо»).</div>`:(tm?`<div class="ro-banner">🔒 Только просмотр — без доступа к деньгам.</div>`:'')}
+    <div class="tabs" style="margin-bottom:8px">${tabBtn('order','📋 Инфо')}${tm?'':tabBtn('money','💰 Деньги')}</div>
     <div class="tabs">
       ${tabBtn('stages','График')}${tabBtn('tasks','Задачи')}${tabBtn('shop','Закупки')}${tabBtn('measures','Замеры')}
     </div><div class="${ro?'ro-lock':''}">${body}</div>`;
@@ -1346,6 +1410,7 @@ function addProjPhoto(pid,phase){
 function delProjPhoto(pid,id){if(!confirm('Удалить фото?'))return;const p=DB.projects.find(x=>x.id===pid);p.photos=(p.photos||[]).filter(x=>x.id!==id);save();render();}
 function infoView(p){
   const badge=p.status==='done'?'Готов':p.status==='hold'?'Пауза':'В работе';
+  const tm=!!(teamMode&&teamMode.active);
   return `<div class="card" style="line-height:1.7">
     <label class="f">Название проекта</label>
     <input id="iName" value="${esc(p.name||'')}" onblur="setName('${p.id}',this.value)" placeholder="Название проекта">
@@ -1375,17 +1440,17 @@ function infoView(p){
     ${p.created?`<div class="fin-sub" style="margin-top:12px">📅 Проект создан: ${fmtDate(p.created)}</div>`:''}
     ${p.archived&&p.archivedAt?`<div class="fin-sub" style="margin-top:4px">✅ Завершён: ${fmtDate(p.archivedAt)}</div>`:''}
   </div>
-  <button class="btn btn-ghost act-btn" onclick="addSiblingProject('${p.id}')" style="margin-bottom:10px">➕ Ещё проект (тот же клиент/адрес)</button>
-  <button class="btn act-btn" onclick="aiMenuSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">🤖 AI-помощник</button>
+  ${tm?'':`<button class="btn btn-ghost act-btn" onclick="addSiblingProject('${p.id}')" style="margin-bottom:10px">➕ Ещё проект (тот же клиент/адрес)</button>`}
+  ${tm?'':`<button class="btn act-btn" onclick="aiMenuSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">🤖 AI-помощник</button>`}
   ${rendersSection(p)}
   ${photosSection(p)}
-  <button class="btn act-btn" onclick="reportLangSheet('${p.id}')" style="margin-bottom:10px">📄 Отчёт / КП для клиента (PDF)</button>
-  <button class="btn btn-ghost act-btn" onclick="financeReport('${p.id}')" style="margin-bottom:10px">🧾 Финансовый отчёт (для себя)</button>
+  ${tm?'':`<button class="btn act-btn" onclick="reportLangSheet('${p.id}')" style="margin-bottom:10px">📄 Отчёт / КП для клиента (PDF)</button>`}
+  ${tm?'':`<button class="btn btn-ghost act-btn" onclick="financeReport('${p.id}')" style="margin-bottom:10px">🧾 Финансовый отчёт (для себя)</button>`}
   ${unitsCard(p)}
-  ${p.archived
+  ${tm?'':(p.archived
     ? `<button class="btn act-btn" onclick="unarchiveProject('${p.id}')" style="margin-bottom:10px">↩️ Вернуть в работу</button>`
-    : `<button class="btn act-btn" onclick="archiveProject('${p.id}')" style="margin-bottom:10px;background:var(--green);color:#fff">✅ Завершить проект (в архив)</button>`}
-  <button class="btn btn-ghost act-btn" onclick="delProject('${p.id}')" style="color:var(--red)">Удалить проект</button>`;
+    : `<button class="btn act-btn" onclick="archiveProject('${p.id}')" style="margin-bottom:10px;background:var(--green);color:#fff">✅ Завершить проект (в архив)</button>`)}
+  ${tm?'':`<button class="btn btn-ghost act-btn" onclick="delProject('${p.id}')" style="color:var(--red)">Удалить проект</button>`}`;
 }
 
 /* stage/sub actions */
@@ -1582,12 +1647,14 @@ function setTaskMode(m){taskMode=m;render();}
 function fmtShort(d){if(!d)return '';try{return new Date(d+'T00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});}catch(e){return d;}}
 function renderTasks(){
   const seg=(k,l)=>`<button class="${taskMode===k?'on':''}" onclick="setTaskMode('${k}')">${l}</button>`;
-  let h=`<div class="tabs">${seg('proj','По проектам')}${seg('sup','Поставщики')}${seg('my','Мои')}${seg('cal','📅 Календарь')}</div>`;
-  if(taskMode==='proj'){$('subtitle').textContent='дела по проектам';h+=tasksByProject();}
-  else if(taskMode==='sup'){$('subtitle').textContent='что купить — по поставщикам';h+=tasksBySupplier();}
-  else if(taskMode==='cal'){$('subtitle').textContent='календарь · сроки и напоминания';h+=calendarBody();}
-  else{$('subtitle').textContent='мои задачи (не привязаны к проекту)';h+=tasksMy();}
-  $('content').innerHTML=h;
+  const tabsHtml=`<div class="tabs">${seg('proj','По проектам')}${seg('sup','Поставщики')}${seg('my','Мои')}${seg('cal','📅 Календарь')}</div>`;
+  let body='';
+  if(taskMode==='proj'){$('subtitle').textContent='дела по проектам';body=tasksByProject();}
+  else if(taskMode==='sup'){$('subtitle').textContent='что купить — по поставщикам';body=tasksBySupplier();}
+  else if(taskMode==='cal'){$('subtitle').textContent='календарь · сроки и напоминания';body=calendarBody();}
+  else{$('subtitle').textContent='мои задачи (не привязаны к проекту)';body=tasksMy();}
+  const tm=!!(teamMode&&teamMode.active);
+  $('content').innerHTML=tabsHtml+(tm?`<div class="ro-lock">${body}</div>`:body);
 }
 function tasksByProject(){
   let h='',any=false;
@@ -1682,7 +1749,8 @@ function renderShop(){
   h+=shopGroupsHTML(items);
   if(!items.length)h+=`<div class="card"><div style="color:var(--muted);font-size:13px;text-align:center;padding:8px">Всё куплено ✓</div></div>`;
   if(manualBought.length){h+='<div class="sec-title">Куплено (свободные позиции)</div><div class="card">';manualBought.forEach(t=>h+=shopRow(t));h+='</div>';}
-  $('content').innerHTML=h;
+  const tm=!!(teamMode&&teamMode.active);
+  $('content').innerHTML=tm?`<div class="ro-lock">${h}</div>`:h;
 }
 function shopUnifiedRow(o){
   const s=o.s;
@@ -2773,8 +2841,9 @@ const STOCK_UNITS=['шт','лист','м','м²','пог.м','компл','кг'
 function renderStock(){
   $('subtitle').textContent='склад · остатки материалов';
   DB.stock=DB.stock||[];
+  const tm=!!(teamMode&&teamMode.active);
   $('content').innerHTML=`<input id="stockSearch" class="proj-search" value="${esc(stockQuery||'')}" oninput="stockQuery=this.value;renderStockList()" placeholder="🔍 Поиск: материал, поставщик, размер">
-    <button class="btn act-btn" onclick="scanInvoiceSheet()" style="margin-bottom:12px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">📷 Сканировать накладную (AI)</button>
+    ${tm?'':`<button class="btn act-btn" onclick="scanInvoiceSheet()" style="margin-bottom:12px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">📷 Сканировать накладную (AI)</button>`}
     <div id="stockList"></div>`;
   renderStockList();
 }
