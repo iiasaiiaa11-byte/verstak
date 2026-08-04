@@ -2349,8 +2349,10 @@ async function createTeamMember(){
     const d=await r.json().catch(()=>({error:'Пустой ответ'}));
     if(!r.ok||d.error){err.textContent=d.error||('Ошибка: HTTP '+r.status);return;}
     _teamCache.push({id:d.memberUid,email:d.email,name,projectIds:[],active:true,addedAt:Date.now()});
+    let emailSent=true;
+    try{await firebase.auth().sendPasswordResetEmail(d.email);}catch(e){emailSent=false;}
     openSheet(`<h2>Сотрудник добавлен</h2>
-      <div class="fin-sub" style="margin-bottom:10px">«${esc(name)}» добавлен(а). Перешли эту ссылку сотруднику (например в WhatsApp) — по ней он сам задаст себе пароль и потом войдёт под своим email (${esc(d.email)}).</div>
+      <div class="fin-sub" style="margin-bottom:10px">${emailSent?`На ${esc(d.email)} отправлено письмо со ссылкой — по ней сотрудник сам задаст себе пароль и войдёт под этим email. Если письма долго нет — проверьте папку «Спам», либо перешлите ссылку ниже вручную (например в WhatsApp).`:`Не удалось отправить письмо — перешлите эту ссылку сотруднику вручную (например в WhatsApp). По ней он сам задаст себе пароль и войдёт под email ${esc(d.email)}.`}</div>
       <input readonly value="${esc(d.resetLink)}" onclick="this.select()" style="width:100%;font-size:12px">
       <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="if(navigator.clipboard)navigator.clipboard.writeText('${esc(d.resetLink)}');this.textContent='Скопировано ✓'">Скопировать ссылку</button>
       <div class="fin-sub" style="margin-top:12px">Дальше отметь, к каким проектам у него будет доступ.</div>
