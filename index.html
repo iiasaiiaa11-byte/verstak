@@ -2349,14 +2349,9 @@ async function createTeamMember(){
     const d=await r.json().catch(()=>({error:'Пустой ответ'}));
     if(!r.ok||d.error){err.textContent=d.error||('Ошибка: HTTP '+r.status);return;}
     _teamCache.push({id:d.memberUid,email:d.email,name,projectIds:[],active:true,addedAt:Date.now()});
-    let emailSent=true;
-    try{await firebase.auth().sendPasswordResetEmail(d.email,{url:'https://iiasaiiaa11-byte.github.io/verstak/'});}
-    catch(e){
-      try{await firebase.auth().sendPasswordResetEmail(d.email);}catch(e2){emailSent=false;} // если continueUrl не разрешён в Firebase — шлём без него, лишь бы письмо ушло
-    }
     const appUrl='https://iiasaiiaa11-byte.github.io/verstak/';
     openSheet(`<h2>Сотрудник добавлен</h2>
-      <div class="fin-sub" style="margin-bottom:10px">${emailSent?`На ${esc(d.email)} отправлено письмо со ссылкой (1). Сотруднику нужно: открыть письмо → перейти по ссылке (1) → задать пароль → затем перейти по второй ссылке (2) ниже — она откроет сам сайт ВЕРСТАК → войти на экране входа, указав email и только что заданный пароль. Если письма долго нет — проверьте папку «Спам», либо перешлите обе ссылки вручную (например в WhatsApp).`:`Не удалось отправить письмо — перешлите обе ссылки сотруднику вручную (например в WhatsApp): сначала (1) для установки пароля, затем (2) — вход на сайт ВЕРСТАК, где нужно указать email ${esc(d.email)} и заданный пароль.`}</div>
+      <div class="fin-sub" style="margin-bottom:10px">${d.emailSent?`На ${esc(d.email)} отправлено письмо с обеими ссылками (1 и 2). Сотруднику нужно: открыть письмо → перейти по ссылке (1) → задать пароль → перейти по ссылке (2) → войти на экране входа, указав email и только что заданный пароль. Если письма долго нет — проверьте папку «Спам», либо перешлите ссылки ниже вручную (например в WhatsApp).`:`Не удалось отправить письмо — перешлите обе ссылки сотруднику вручную (например в WhatsApp): сначала (1) для установки пароля, затем (2) — вход на сайт ВЕРСТАК, где нужно указать email ${esc(d.email)} и заданный пароль.`}</div>
       <label class="f">1. Ссылка для установки пароля</label>
       <input readonly value="${esc(d.resetLink)}" onclick="this.select()" style="width:100%;font-size:12px">
       <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px" onclick="if(navigator.clipboard)navigator.clipboard.writeText('${esc(d.resetLink)}');this.textContent='Скопировано ✓'">Скопировать ссылку (1)</button>
