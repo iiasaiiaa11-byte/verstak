@@ -443,9 +443,9 @@
 /* ---------- storage (IndexedDB — много памяти под фото) ---------- */
 const KEY='verstak_v1';
 const IDB_NAME='verstak_store', IDB_STORE='kv';
-let DB={projects:[],objects:[],clients:[],tasks:[],shop:[],reminders:[],settings:{}};
+let DB={projects:[],objects:[],clients:[],tasks:[],shop:[],reminders:[],settings:{},stock:[]};
 let idb=null;
-function normalizeDB(d){return {projects:d.projects||[],objects:d.objects||[],clients:d.clients||[],tasks:d.tasks||[],shop:d.shop||[],reminders:d.reminders||[],settings:d.settings||{}};}
+function normalizeDB(d){return {projects:d.projects||[],objects:d.objects||[],clients:d.clients||[],tasks:d.tasks||[],shop:d.shop||[],reminders:d.reminders||[],settings:d.settings||{},stock:d.stock||[]};}
 function openIDB(){
   return new Promise((res,rej)=>{
     try{
@@ -2941,7 +2941,7 @@ function importData(ev){
       const d=JSON.parse(e.target.result);
       if(!d||typeof d!=='object'||!('projects'in d))throw 0;
       if(!confirm('Загрузить данные из копии? Текущие данные будут заменены.'))return;
-      DB={projects:d.projects||[],tasks:d.tasks||[],shop:d.shop||[],reminders:d.reminders||[]};
+      DB=normalizeDB(d);
       save();openProject=null;render();
       alert('Готово! Данные загружены.');
     }catch(err){alert('Не получилось прочитать файл. Выбери файл копии «verstak-…json».');}
