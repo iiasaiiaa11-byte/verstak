@@ -612,7 +612,7 @@ async function teamAwareLogin(uid){
         render();
         return;
       }
-      teamMode={name:d.name||'',active:true};
+      teamMode={name:d.name||'',active:true,perms:Object.assign({},TEAM_PERM_DEFAULTS,d.perms||{})};
       cloudUid=uid;cloudRef=null;syncReady=false;
       DB=normalizeDB({projects:d.projects||[],objects:d.objects||[]});
       applyTeamNavRestrictions(true);
@@ -637,6 +637,38 @@ function renderTeamDisabled(){
   $('fab').style.display='none';
   $('content').innerHTML=`<div class="empty" style="margin-top:60px"><p>🔒 Доступ временно отключён владельцем мастерской.<br>Обратитесь к владельцу, чтобы включить доступ обратно.</p></div>
     <button class="btn btn-ghost" style="width:100%;margin-top:16px" onclick="teamLogoutConfirm()">🚪 Выйти</button>`;
+}
+function teamSheetNewProject(objectId){
+  openSheet(`<h2>Новый проект</h2>
+    <label class="f">Название</label>
+    <input id="tpName" placeholder="Напр. Кухня Ивановы">
+    <div class="row">
+      <div><label class="f">Заказчик</label><input id="tpClient" placeholder="Имя"></div>
+      <div><label class="f">Телефон</label><input id="tpPhone" type="tel" placeholder="+359…"></div>
+    </div>
+    <label class="f">Дедлайн (необязательно)</label>
+    <input type="date" id="tpDead">
+    <label class="f">Описание (необязательно)</label>
+    <textarea id="tpDesc" placeholder="Нюансы, размеры…"></textarea>
+    <div id="tpErr" class="login-err"></div>
+    <div class="sheet-actions"><button class="btn btn-ghost" onclick="closeSheet()">Отмена</button><button class="btn" onclick="teamSaveProject('${objectId||''}')">Создать</button></div>`);
+  setTimeout(()=>{const e=$('tpName');if(e)e.focus();},100);
+}
+async function teamSaveProject(objectId){
+  const name=($('tpName').value||'').trim();
+  const err=$('tpErr');
+  if(!name){err.textContent='Введи название';return;}
+  err.textContent='Создаём…';
+  try{
+    const token=await firebase.auth().currentUser.getIdToken();
+    const r=await fetch(TEAM_CREATE_PROJECT_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({
+      name,client:($('tpClient').value||'').trim(),phone:($('tpPhone').value||'').trim(),deadline:$('tpDead').value||'',desc:($('tpDesc').value||'').trim(),objectId:objectId||''
+    })});
+    const d=await r.json().catch(()=>({error:'Пустой ответ'}));
+    if(!r.ok||d.error){err.textContent=d.error||('Ошибка: HTTP '+r.status);return;}
+    closeSheet();
+    await teamAwareLogin(cloudUid);
+  }catch(e){err.textContent='Ошибка: '+(e.message||'');}
 }
 /* ---------- push-уведомления о сроках (Web Push) ---------- */
 const VAPID_PUBLIC='BBSAWFNOSqNJr-sjzVH6b5MqGJxOcUS8hT7tHmS5rFWiiR2RA2hWhUAX9Z7aRokO3EVSWqcw63vivsRseLfcQkY';
@@ -763,9 +795,11 @@ function go(t){TAB=t;openProject=null;openObject=null;showArchive=false;showSett
 function openMainMenu(){
   const notifOn=('Notification' in window)&&Notification.permission==='granted';
   if(teamMode&&teamMode.active){
+    const perms=Object.assign({},TEAM_PERM_DEFAULTS,teamMode.perms||{});
     openSheet(`<h2>☰ Меню</h2>
-      <div class="fin-sub" style="margin-bottom:14px">Вы вошли как сотрудник${teamMode.name?': '+esc(teamMode.name):''}. Доступны только назначенные вам проекты, без раздела «Деньги» — только просмотр.</div>
+      <div class="fin-sub" style="margin-bottom:14px">Вы вошли как сотрудник${teamMode.name?': '+esc(teamMode.name):''}. Доступны только назначенные вам проекты, только просмотр${perms.money?'':', без раздела «Деньги»'}.</div>
       <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px" onclick="closeSheet();openArchive()">🗄 Завершённые проекты</button>
+      ${perms.calc?`<button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px" onclick="closeSheet();go('calc')">🧮 Калькулятор кухни</button>`:''}
       <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px" onclick="closeSheet();teamRefresh()">🔄 Обновить проекты</button>
       <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px" onclick="closeSheet();enableNotifs()">🔔 Уведомления о сроках${notifOn?' · включены':''}</button>
       <button class="btn btn-ghost" style="width:100%;text-align:left;margin-bottom:8px;color:var(--red)" onclick="closeSheet();teamLogoutConfirm()">🚪 Выйти</button>
@@ -790,7 +824,8 @@ function render(){
   if(showClients){$('fab').style.display='none';if(cliView)renderClientDetail();else renderClients();return;}
   const archMode=showArchive&&!openProject;
   const openArchived=openProject&&(DB.projects.find(x=>x.id===openProject)||{}).archived;
-  const hideFab=archMode||openArchived||tm;
+  const tmCanCreate=tm&&teamMode.perms&&teamMode.perms.createProjects;
+  const hideFab=archMode||openArchived||(tm&&!(tmCanCreate&&TAB==='projects'&&!openProject&&!openObject));
   $('fab').style.display = hideFab? 'none' : ((openProject||openObject)?'flex':((TAB==='calendar'||TAB==='calc'||TAB==='ai')?'none':'flex'));
   if(openProject){renderProjectDetail();return;}
   if(openObject){renderObjectDetail();return;}
@@ -1025,23 +1060,25 @@ function renderObjectDetail(){
   if(!o){openObject=null;return render();}
   $('subtitle').textContent='объект · квартира';
   const tm=!!(teamMode&&teamMode.active);
+  const canMoney=!tm||(teamMode.perms&&teamMode.perms.money);
+  const canCreate=tm&&teamMode.perms&&teamMode.perms.createProjects;
   const ps=objProjects(o.id),f=objFin(o.id),dl=objDeadlines(o.id);
   let h=`<button class="back" onclick="openObject=null;render()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> К проектам</button>
     <div class="proj-name" style="font-size:23px">🏠 ${esc(o.name)}</div>
     ${(o.client||o.phone||o.address)?`<div class="proj-desc" style="margin-bottom:10px">${esc([o.client,o.phone,o.address].filter(Boolean).join(' · '))}</div>`:''}
-    ${tm?'':`<div class="fin-grid">
+    ${canMoney?`<div class="fin-grid">
       <div class="fin-box"><div class="fin-lbl">Сумма всех проектов</div><div class="fin-val">${money(f.price)}</div></div>
       <div class="fin-box"><div class="fin-lbl">Получено</div><div class="fin-val green">${money(f.income)}</div></div>
       <div class="fin-box"><div class="fin-lbl">Осталось получить</div><div class="fin-val ${f.remain>0?'amber':'green'}">${money(f.remain)}</div></div>
       <div class="fin-box"><div class="fin-lbl">Прибыль</div><div class="fin-val ${f.profit>=0?'green':'red'}">${money(f.profit)}</div></div>
-    </div>`}`;
+    </div>`:''}`;
   if(dl.length){
     h+=`<div class="sec-title">Ближайшие сроки</div><div class="card">`;
     dl.forEach(d=>h+=`<div class="money-row"><div style="flex:1"><div class="item-txt">${esc(d.txt)}</div><div class="item-sub">${fmtDate(d.date)}</div></div></div>`);
     h+=`</div>`;
   }
   h+=`<div class="sec-title">Проекты объекта</div>
-    ${tm?'':`<button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:10px" onclick="sheetProject('${o.id}')">+ Проект в этот объект</button>`}`;
+    ${(!tm)?`<button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:10px" onclick="sheetProject('${o.id}')">+ Проект в этот объект</button>`:(canCreate?`<button class="btn btn-ghost btn-sm" style="width:100%;margin-bottom:10px" onclick="teamSheetNewProject('${o.id}')">+ Проект в этот объект</button>`:'')}`;
   if(ps.length){h+=`<div class="proj-grid">`;ps.forEach(p=>h+=projectCard(p));h+=`</div>`;}
   else h+=emptyState('M3 7h18M3 12h18M3 17h18','В объекте пока нет проектов.<br>Нажми «+ Проект».');
   if(!tm)h+=`<div class="sec-title">Объект</div>
@@ -1152,7 +1189,10 @@ function renderProjectDetail(){
   const p=DB.projects.find(x=>x.id===openProject);
   if(!p){openProject=null;return render();}
   const tm=!!(teamMode&&teamMode.active);
-  if(tm&&projTab==='money')projTab='order';
+  const canMoney=!tm||(teamMode.perms&&teamMode.perms.money);
+  const canMeasures=!tm||(teamMode.perms&&teamMode.perms.measures);
+  if(tm&&projTab==='money'&&!canMoney)projTab='order';
+  if(tm&&projTab==='measures'&&!canMeasures)projTab='order';
   $('subtitle').textContent=p.archived?'завершённый проект · просмотр':(tm?'проект · только просмотр':'проект');
   const ro=!!p.archived||tm;
   const tabBtn=(k,l)=>`<button class="${projTab===k?'on':''}" onclick="projTab='${k}';render()">${l}</button>`;
@@ -1168,10 +1208,10 @@ function renderProjectDetail(){
     <button class="back" onclick="backFromProject()"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg> ${p.archived?'К завершённым':(p.objectId?'К объекту':'К проектам')}</button>
     ${p.objectId?`<div class="proj-desc" style="color:var(--wood-2);margin-bottom:2px">🏠 ${esc(objName(p.objectId))}</div>`:''}
     <div class="proj-name" style="font-size:19px;margin-bottom:10px">${esc(p.name)}</div>
-    ${p.archived?`<div class="ro-banner">🔒 Проект завершён — только просмотр. Чтобы редактировать, верни его в работу (вкладка «Инфо»).</div>`:(tm?`<div class="ro-banner">🔒 Только просмотр — без доступа к деньгам.</div>`:'')}
-    <div class="tabs" style="margin-bottom:8px">${tabBtn('order','📋 Инфо')}${tm?'':tabBtn('money','💰 Деньги')}</div>
+    ${p.archived?`<div class="ro-banner">🔒 Проект завершён — только просмотр. Чтобы редактировать, верни его в работу (вкладка «Инфо»).</div>`:(tm?`<div class="ro-banner">🔒 Только просмотр${canMoney?'':' — без доступа к деньгам'}.</div>`:'')}
+    <div class="tabs" style="margin-bottom:8px">${tabBtn('order','📋 Инфо')}${canMoney?tabBtn('money','💰 Деньги'):''}</div>
     <div class="tabs">
-      ${tabBtn('stages','График')}${tabBtn('tasks','Задачи')}${tabBtn('shop','Закупки')}${tabBtn('measures','Замеры')}
+      ${tabBtn('stages','График')}${tabBtn('tasks','Задачи')}${tabBtn('shop','Закупки')}${canMeasures?tabBtn('measures','Замеры'):''}
     </div><div class="${ro?'ro-lock':''}">${body}</div>`;
 }
 
@@ -1411,6 +1451,7 @@ function delProjPhoto(pid,id){if(!confirm('Удалить фото?'))return;con
 function infoView(p){
   const badge=p.status==='done'?'Готов':p.status==='hold'?'Пауза':'В работе';
   const tm=!!(teamMode&&teamMode.active);
+  const canMoney=!tm||(teamMode.perms&&teamMode.perms.money);
   return `<div class="card" style="line-height:1.7">
     <label class="f">Название проекта</label>
     <input id="iName" value="${esc(p.name||'')}" onblur="setName('${p.id}',this.value)" placeholder="Название проекта">
@@ -1444,8 +1485,8 @@ function infoView(p){
   ${tm?'':`<button class="btn act-btn" onclick="aiMenuSheet('${p.id}')" style="margin-bottom:10px;background:linear-gradient(90deg,var(--wood),var(--wood-2));color:#1a140b;font-weight:700">🤖 AI-помощник</button>`}
   ${rendersSection(p)}
   ${photosSection(p)}
-  ${tm?'':`<button class="btn act-btn" onclick="reportLangSheet('${p.id}')" style="margin-bottom:10px">📄 Отчёт / КП для клиента (PDF)</button>`}
-  ${tm?'':`<button class="btn btn-ghost act-btn" onclick="financeReport('${p.id}')" style="margin-bottom:10px">🧾 Финансовый отчёт (для себя)</button>`}
+  ${(!tm||canMoney)?`<button class="btn act-btn" onclick="reportLangSheet('${p.id}')" style="margin-bottom:10px">📄 Отчёт / КП для клиента (PDF)</button>`:''}
+  ${(!tm||canMoney)?`<button class="btn btn-ghost act-btn" onclick="financeReport('${p.id}')" style="margin-bottom:10px">🧾 Финансовый отчёт (для себя)</button>`:''}
   ${unitsCard(p)}
   ${tm?'':(p.archived
     ? `<button class="btn act-btn" onclick="unarchiveProject('${p.id}')" style="margin-bottom:10px">↩️ Вернуть в работу</button>`
@@ -2362,6 +2403,8 @@ function delSupplier(i){const s=stg();s.suppliers=supList().slice();s.suppliers.
 /* ---------- Команда: сотрудники с доступом к отдельным проектам (этап 1 — только сторона владельца) ---------- */
 const TEAM_CREATE_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/teamCreateMember';
 const TEAM_REMOVE_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/teamRemoveMember';
+const TEAM_CREATE_PROJECT_ENDPOINT='https://europe-west1-verstak-a28eb.cloudfunctions.net/teamCreateProject';
+const TEAM_PERM_DEFAULTS={money:false,measures:true,calc:false,createProjects:false};
 let _teamCache=[];
 function loadTeamCache(){
   if(!cloudUid||typeof firebase==='undefined')return;
@@ -2416,7 +2459,7 @@ async function createTeamMember(){
     const r=await fetch(TEAM_CREATE_ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({email,name})});
     const d=await r.json().catch(()=>({error:'Пустой ответ'}));
     if(!r.ok||d.error){err.textContent=d.error||('Ошибка: HTTP '+r.status);return;}
-    _teamCache.push({id:d.memberUid,email:d.email,name,projectIds:[],active:true,addedAt:Date.now()});
+    _teamCache.push({id:d.memberUid,email:d.email,name,projectIds:[],active:true,addedAt:Date.now(),perms:Object.assign({},TEAM_PERM_DEFAULTS)});
     const appUrl='https://iiasaiiaa11-byte.github.io/verstak/';
     openSheet(`<h2>Сотрудник добавлен</h2>
       <div class="fin-sub" style="margin-bottom:10px">${d.emailSent?`На ${esc(d.email)} отправлено письмо с обеими ссылками (1 и 2). Сотруднику нужно: открыть письмо → перейти по ссылке (1) → задать пароль → перейти по ссылке (2) → войти на экране входа, указав email и только что заданный пароль. Если письма долго нет — проверьте папку «Спам», либо перешлите ссылки ниже вручную (например в WhatsApp).`:`Не удалось отправить письмо — перешлите обе ссылки сотруднику вручную (например в WhatsApp): сначала (1) для установки пароля, затем (2) — вход на сайт ВЕРСТАК, где нужно указать email ${esc(d.email)} и заданный пароль.`}</div>
@@ -2434,12 +2477,24 @@ function openTeamMemberSheet(memberUid){
   const m=_teamCache.find(x=>x.id===memberUid);if(!m)return;
   const aps=activeProjects();
   const ids=m.projectIds||[];
+  const perms=Object.assign({},TEAM_PERM_DEFAULTS,m.perms||{});
+  const permChip=(key,label)=>`<button type="button" class="chip ${perms[key]?'on':''}" onclick="toggleTeamMemberPerm('${memberUid}','${key}')">${label}</button>`;
   openSheet(`<h2>${esc(m.name)}</h2>
     <div class="fin-sub" style="margin-bottom:10px">${esc(m.email)}</div>
     <label class="f">Доступ</label>
     <div class="chips" style="margin-bottom:10px">
       <button type="button" class="chip ${m.active!==false?'on':''}" onclick="setTeamMemberActive('${memberUid}',true)">Включён</button>
       <button type="button" class="chip ${m.active===false?'on':''}" onclick="setTeamMemberActive('${memberUid}',false)">Выключен</button>
+    </div>
+    <label class="f">Что доступно по назначенным проектам</label>
+    <div class="chips" style="margin-bottom:10px">
+      ${permChip('money','💰 Деньги')}
+      ${permChip('measures','📐 Замеры')}
+    </div>
+    <label class="f">Прочее</label>
+    <div class="chips" style="margin-bottom:10px">
+      ${permChip('calc','🧮 Калькулятор кухни')}
+      ${permChip('createProjects','➕ Создание своих проектов')}
     </div>
     <label class="f">Проекты с доступом</label>
     <div class="card">
@@ -2463,6 +2518,13 @@ function toggleTeamMemberProject(memberUid,projectId){
   const i=m.projectIds.indexOf(projectId);
   if(i>=0)m.projectIds.splice(i,1);else m.projectIds.push(projectId);
   firebase.database().ref('verstakTeam/'+cloudUid+'/members/'+memberUid+'/projectIds').set(m.projectIds);
+  openTeamMemberSheet(memberUid);
+}
+function toggleTeamMemberPerm(memberUid,key){
+  const m=_teamCache.find(x=>x.id===memberUid);if(!m)return;
+  m.perms=Object.assign({},TEAM_PERM_DEFAULTS,m.perms||{});
+  m.perms[key]=!m.perms[key];
+  firebase.database().ref('verstakTeam/'+cloudUid+'/members/'+memberUid+'/perms').set(m.perms);
   openTeamMemberSheet(memberUid);
 }
 async function removeTeamMember(memberUid){
@@ -3027,6 +3089,10 @@ async function transcribeBlob(blob){
 
 /* ---------- FAB / sheets ---------- */
 function onFab(){
+  if(teamMode&&teamMode.active){
+    if(!openProject&&!openObject&&TAB==='projects')teamSheetNewProject();
+    return;
+  }
   if(openProject){
     if(projTab==='money')sheetExpensePick(openProject);
     else if(projTab==='shop')sheetProjShop(openProject);
