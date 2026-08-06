@@ -3267,8 +3267,9 @@ function sheetProject(objId){
       <div><label class="f">Заказчик</label><input id="pClient" placeholder="Имя"></div>
       <div><label class="f">Телефон</label><input id="pPhone" type="tel" placeholder="+359…"></div>
     </div>`;
-  const objSel=(!objId&&objs.length)?`<label class="f">Объект (необязательно)</label>
-    <select id="pObj"><option value="">— Без объекта —</option>${objs.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>`:'';
+  const objSel=(!objId)?`<label class="f">Объект (необязательно)</label>
+    <select id="pObj" onchange="pObjChange()"><option value="">— Без объекта —</option>${objs.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join('')}<option value="__new__">+ Новый объект…</option></select>
+    <div id="pObjNewWrap" style="display:none;margin-top:8px"><input id="pObjNewName" placeholder="Название объекта, напр. Квартира на ул. Иванова 5"></div>`:'';
   openSheet(`<h2>Новый проект${objId?' в объекте':''}</h2>
     <label class="f">Название</label>
     <input id="pName" placeholder="Напр. Кухня угловая" autofocus>
@@ -3282,12 +3283,24 @@ function sheetProject(objId){
     </div>`);
   setTimeout(()=>$('pName').focus(),100);
 }
+function pObjChange(){
+  const v=$('pObj').value;
+  const w=$('pObjNewWrap');
+  if(w)w.style.display=(v==='__new__')?'block':'none';
+  if(v==='__new__')setTimeout(()=>$('pObjNewName')&&$('pObjNewName').focus(),50);
+}
 function saveProject(objId){
   const n=$('pName').value.trim();if(!n){$('pName').focus();return;}
-  const oid=objId||($('pObj')?$('pObj').value:'')||'';
+  let oid=objId||($('pObj')?$('pObj').value:'')||'';
   const proj={id:uid(),name:n,client:$('pClient')?$('pClient').value.trim():'',phone:$('pPhone')?$('pPhone').value.trim():'',
     created:todayISO(),deadline:$('pDead').value,price:0,prepay:0,finalpay:0,desc:'',
     status:'active',units:[],stages:makeStages(),tasks:[],shop:[],mainExpenses:[],expenses:[]};
+  if(oid==='__new__'){
+    const oname=($('pObjNewName')?$('pObjNewName').value.trim():'')||proj.client||n;
+    const obj={id:uid(),name:oname,client:proj.client,phone:proj.phone,address:'',created:todayISO()};
+    DB.objects=DB.objects||[];DB.objects.push(obj);
+    oid=obj.id;
+  }
   if(oid)proj.objectId=oid;
   ensureClient(proj.client,proj.phone);
   DB.projects.unshift(proj);
